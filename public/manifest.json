@@ -1,0 +1,10 @@
+{
+  "name": "Purrdict AI",
+  "short_name": "Purrdict",
+  "description": "Know what your cat is up to — AI-powered cat behavior prediction",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFF6EC",
+  "theme_color": "#FF8FA3",
+  "orientation": "portrait"
+}
