@@ -81,20 +81,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const data = await res.json();
       setUser(data.user);
-      // Store JWT token
       if (data.token) {
         localStorage.setItem("purrdict_token", data.token);
       }
       return true;
     } catch {
-      // Fallback for when API isn't running (dev without db)
-      setUser({
-        id: Date.now().toString(),
-        email,
-        displayName: email.split("@")[0],
-        cats: [],
-      });
-      return true;
+      // API not reachable — do not auto-login
+      return false;
     }
   }, []);
 
@@ -118,9 +111,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return true;
     } catch {
-      // Fallback
-      setUser({ id: Date.now().toString(), email, displayName: name, cats: [] });
-      return true;
+      // API not reachable — do not auto-signup
+      return false;
     }
   }, []);
 
@@ -129,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     localStorage.removeItem("purrdict_user");
     localStorage.removeItem("purrdict_token");
+    localStorage.removeItem("purrdict_tutorial_done");
   }, []);
 
   // ── Cat CRUD (local state + API) ──
