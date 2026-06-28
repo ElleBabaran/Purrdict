@@ -220,7 +220,8 @@ const authHandler = withMcpAuth(
   },
   {
     required: true,
-    resourceUrl: `${getBaseUrl()}/api/mcp/mcp`,
+    resourceUrl: getBaseUrl(),
+    resourceMetadataPath: "/.well-known/oauth-protected-resource",
   }
 );
 
