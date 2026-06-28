@@ -94,11 +94,13 @@ export default function Showcase() {
               <span className="font-pixel text-[7px] text-[var(--mint)]">7 STOPS</span>
             </div>
             <div
-              className="relative h-40 md:h-48 overflow-hidden"
+              className="relative h-44 md:h-52"
               style={{
                 background:
                   "linear-gradient(rgba(127,216,190,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(127,216,190,0.06) 1px, transparent 1px), #0E0B14",
                 backgroundSize: "16px 16px",
+                overflow: "hidden",
+                borderRadius: "0 0 14px 14px",
               }}
             >
               {/* room outlines */}
@@ -357,24 +359,24 @@ function TrailCat() {
   }, []);
 
   return (
-    <div className="absolute bottom-3 left-0 z-20 animate-walk">
-      {/* Thought bubble — white with emoji icon */}
+    <div className="absolute bottom-8 left-[25%] z-20">
+      {/* White thought bubble with emoji */}
       <div
-        className="absolute -top-10 left-1/2 -translate-x-1/2 transition-all duration-300"
-        style={{ opacity: showThought ? 1 : 0, transform: showThought ? "translateY(0) scale(1)" : "translateY(4px) scale(0.8)" }}
+        className="absolute -top-11 left-1/2 -translate-x-1/2 transition-all duration-300"
+        style={{ opacity: showThought ? 1 : 0, transform: `translateX(-50%) ${showThought ? "scale(1)" : "scale(0.7)"}` }}
       >
         <div
-          className="relative w-8 h-8 rounded-full flex items-center justify-center text-sm"
-          style={{ background: "#FFFFFF", boxShadow: "0 2px 6px rgba(0,0,0,0.3)" }}
+          className="w-9 h-9 rounded-full flex items-center justify-center text-base shadow-lg"
+          style={{ background: "#FFFFFF" }}
         >
           {thought}
-          {/* Bubble dots */}
-          <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-white" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
-          <div className="absolute -bottom-3 left-1/2 -translate-x-[2px] w-1.5 h-1.5 rounded-full bg-white" style={{ boxShadow: "0 1px 2px rgba(0,0,0,0.15)" }} />
         </div>
+        {/* Thought bubble dots */}
+        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-white shadow-sm" />
+        <div className="absolute -bottom-3 left-[45%] w-1.5 h-1.5 rounded-full bg-white shadow-sm" />
       </div>
       {/* Cat */}
-      <PixelCat size={36} variant="orange" walking />
+      <PixelCat size={40} variant="orange" bounce />
     </div>
   );
 }
