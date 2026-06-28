@@ -38,7 +38,7 @@ const nextConfig: NextConfig = {
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https:",
               "media-src 'self' blob: https:",
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co http://192.168.* http://10.* http://esp32cam.local",
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co http://192.168.* http://10.* http://esp32cam.local https://claude.ai",
             ].join("; "),
           },
           {
