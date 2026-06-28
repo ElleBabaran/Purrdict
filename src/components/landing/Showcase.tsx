@@ -338,18 +338,7 @@ export default function Showcase() {
   );
 }
 
-const CAT_THOUGHTS = [
-  "where's my treat?",
-  "that bird looks suspicious...",
-  "nap time soon~",
-  "I smell food!",
-  "pet me hooman",
-  "what was that noise?",
-  "the red dot... where?",
-  "this box is mine now",
-  "feeling fancy today",
-  "zoomies incoming!",
-];
+const CAT_THOUGHTS = ["🐟", "💤", "🧶", "🐦", "🍗", "❤️", "🌙", "🎯", "😼", "🐾"];
 
 function TrailCat() {
   const [thought, setThought] = useState(CAT_THOUGHTS[0]);
@@ -363,27 +352,25 @@ function TrailCat() {
         setThought(CAT_THOUGHTS[Math.floor(Math.random() * CAT_THOUGHTS.length)]);
         setShowThought(true);
       }, 400);
-    }, 3500);
+    }, 3000);
     return () => clearInterval(interval);
   }, []);
 
   return (
     <div className="absolute bottom-3 left-0 z-20 animate-walk">
-      {/* Thought bubble */}
+      {/* Thought bubble — white with emoji icon */}
       <div
-        className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap transition-all duration-300"
-        style={{ opacity: showThought ? 1 : 0, transform: showThought ? "translateY(0)" : "translateY(4px)" }}
+        className="absolute -top-10 left-1/2 -translate-x-1/2 transition-all duration-300"
+        style={{ opacity: showThought ? 1 : 0, transform: showThought ? "translateY(0) scale(1)" : "translateY(4px) scale(0.8)" }}
       >
         <div
-          className="relative px-2 py-1 rounded-lg font-pixel text-[5px] text-white/80"
-          style={{ background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)" }}
+          className="relative w-8 h-8 rounded-full flex items-center justify-center text-sm"
+          style={{ background: "#FFFFFF", boxShadow: "0 2px 6px rgba(0,0,0,0.3)" }}
         >
           {thought}
-          {/* Bubble tail */}
-          <div
-            className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 rotate-45"
-            style={{ background: "rgba(0,0,0,0.6)", borderRight: "1px solid rgba(255,255,255,0.15)", borderBottom: "1px solid rgba(255,255,255,0.15)" }}
-          />
+          {/* Bubble dots */}
+          <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-white" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+          <div className="absolute -bottom-3 left-1/2 -translate-x-[2px] w-1.5 h-1.5 rounded-full bg-white" style={{ boxShadow: "0 1px 2px rgba(0,0,0,0.15)" }} />
         </div>
       </div>
       {/* Cat */}
