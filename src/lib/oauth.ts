@@ -144,10 +144,48 @@ export async function registerClient(params: {
 
 export async function getClient(clientId: string): Promise<OAuthClient | null> {
   if (!isDbAvailable()) return null;
-  return queryOne<OAuthClient>(
+  const row = await queryOne<OAuthClient>(
     "SELECT client_id, client_secret, client_name, redirect_uris, grant_types, response_types, scope, token_endpoint_auth_method, client_id_issued_at, client_secret_expires_at FROM oauth_clients WHERE client_id = $1",
     [clientId]
   );
+  if (!row) return null;
+
+  // Ensure array fields are actual arrays (Postgres may return string representation)
+  if (typeof row.redirect_uris === "string") {
+    row.redirect_uris = parsePostgresArray(row.redirect_uris as unknown as string);
+  }
+  if (typeof row.grant_types === "string") {
+    row.grant_types = parsePostgresArray(row.grant_types as unknown as string);
+  }
+  if (typeof row.response_types === "string") {
+    row.response_types = parsePostgresArray(row.response_types as unknown as string);
+  }
+
+  return row;
+}
+
+/** Parse Postgres array literal like {a,b,c} into JS array */
+function parsePostgresArray(str: string): string[] {
+  if (!str || str === "{}") return [];
+  // Remove outer braces and split
+  const inner = str.replace(/^\{/, "").replace(/\}$/, "");
+  // Handle quoted values
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+    } else if (ch === "," && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  if (current) result.push(current);
+  return result;
 }
 
 // ── Authorization Codes ──
