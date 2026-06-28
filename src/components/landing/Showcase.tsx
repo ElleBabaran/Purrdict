@@ -1,3 +1,5 @@
+"use client";
+import { useState, useEffect } from "react";
 import PixelCat from "@/components/PixelCat";
 
 export default function Showcase() {
@@ -121,12 +123,12 @@ export default function Showcase() {
                 />
               </svg>
 
-              {/* pins */}
+              {/* pins with glow pulse animation */}
               {[
-                { emoji: "💤", top: "22%", left: "18%", delay: "0.4s" },
-                { emoji: "🍽️", top: "32%", left: "65%", delay: "0.9s" },
-                { emoji: "🧶", top: "58%", left: "35%", delay: "1.4s" },
-                { emoji: "☀️", top: "62%", left: "70%", delay: "1.9s" },
+                { emoji: "💤", top: "22%", left: "18%", delay: "0s", glow: "rgba(91,141,239,0.4)" },
+                { emoji: "🍽️", top: "32%", left: "65%", delay: "0.5s", glow: "rgba(255,209,102,0.4)" },
+                { emoji: "🧶", top: "58%", left: "35%", delay: "1s", glow: "rgba(79,174,148,0.4)" },
+                { emoji: "☀️", top: "62%", left: "70%", delay: "1.5s", glow: "rgba(255,209,102,0.5)" },
               ].map((p, i) => (
                 <div
                   key={i}
@@ -134,17 +136,21 @@ export default function Showcase() {
                   style={{ top: p.top, left: p.left, animationDelay: p.delay, opacity: 0 }}
                 >
                   <div
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-sm"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-sm animate-bob"
                     style={{
                       background: "rgba(255,209,102,0.12)",
                       border: "1.5px solid rgba(255,209,102,0.3)",
-                      boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
+                      boxShadow: `0 2px 8px ${p.glow}`,
+                      animationDelay: p.delay,
                     }}
                   >
                     {p.emoji}
                   </div>
                 </div>
               ))}
+
+              {/* Walking cat with thought bubble */}
+              <TrailCat />
             </div>
           </div>
         </div>
@@ -329,5 +335,59 @@ export default function Showcase() {
         </div>
       </section>
     </>
+  );
+}
+
+const CAT_THOUGHTS = [
+  "where's my treat?",
+  "that bird looks suspicious...",
+  "nap time soon~",
+  "I smell food!",
+  "pet me hooman",
+  "what was that noise?",
+  "the red dot... where?",
+  "this box is mine now",
+  "feeling fancy today",
+  "zoomies incoming!",
+];
+
+function TrailCat() {
+  const [thought, setThought] = useState(CAT_THOUGHTS[0]);
+  const [showThought, setShowThought] = useState(true);
+
+  // Cycle thoughts
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setShowThought(false);
+      setTimeout(() => {
+        setThought(CAT_THOUGHTS[Math.floor(Math.random() * CAT_THOUGHTS.length)]);
+        setShowThought(true);
+      }, 400);
+    }, 3500);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="absolute bottom-3 left-0 z-20 animate-walk">
+      {/* Thought bubble */}
+      <div
+        className="absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap transition-all duration-300"
+        style={{ opacity: showThought ? 1 : 0, transform: showThought ? "translateY(0)" : "translateY(4px)" }}
+      >
+        <div
+          className="relative px-2 py-1 rounded-lg font-pixel text-[5px] text-white/80"
+          style={{ background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)" }}
+        >
+          {thought}
+          {/* Bubble tail */}
+          <div
+            className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 rotate-45"
+            style={{ background: "rgba(0,0,0,0.6)", borderRight: "1px solid rgba(255,255,255,0.15)", borderBottom: "1px solid rgba(255,255,255,0.15)" }}
+          />
+        </div>
+      </div>
+      {/* Cat */}
+      <PixelCat size={36} variant="orange" walking />
+    </div>
   );
 }

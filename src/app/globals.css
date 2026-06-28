@@ -150,7 +150,12 @@ body{
   60% { opacity: 1; transform: scale(1.2) translateY(-2px); }
   100% { opacity: 1; transform: scale(1) translateY(0); }
 }
-.animate-pin-pop { animation: pin-pop 0.4s ease forwards; }
+.animate-pin-pop { animation: pin-pop 0.4s ease forwards, pin-idle 2s ease-in-out 0.5s infinite; }
+
+@keyframes pin-idle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
 
 @keyframes scan { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
 .animate-scan { animation: scan 3s linear infinite; }
