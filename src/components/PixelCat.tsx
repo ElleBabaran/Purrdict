@@ -6,6 +6,7 @@ type PixelCatProps = {
   variant?: "orange" | "night";
   className?: string;
   bounce?: boolean;
+  walking?: boolean;
 };
 
 export default function PixelCat({
@@ -13,19 +14,20 @@ export default function PixelCat({
   variant = "orange",
   className = "",
   bounce = false,
+  walking = false,
 }: PixelCatProps) {
   const [isBlinking, setIsBlinking] = useState(false);
-  const [isNodding, setIsNodding] = useState(false);
-  const [tailPhase, setTailPhase] = useState(0);
+  const [tailFrame, setTailFrame] = useState(0);
+  const [walkFrame, setWalkFrame] = useState(0);
 
-  // Blink animation — random intervals
+  // Blink randomly
   useEffect(() => {
     const blink = () => {
       setIsBlinking(true);
-      setTimeout(() => setIsBlinking(false), 180);
+      setTimeout(() => setIsBlinking(false), 150);
     };
-    const scheduleNext = () => {
-      const delay = 2000 + Math.random() * 4000; // 2-6 seconds
+    const scheduleNext = (): ReturnType<typeof setTimeout> => {
+      const delay = 2500 + Math.random() * 3500;
       return setTimeout(() => {
         blink();
         timerId = scheduleNext();
@@ -35,157 +37,153 @@ export default function PixelCat({
     return () => clearTimeout(timerId);
   }, []);
 
-  // Nod animation — occasional
-  useEffect(() => {
-    const scheduleNod = () => {
-      const delay = 5000 + Math.random() * 8000; // 5-13 seconds
-      return setTimeout(() => {
-        setIsNodding(true);
-        setTimeout(() => setIsNodding(false), 600);
-        timerId = scheduleNod();
-      }, delay);
-    };
-    let timerId = scheduleNod();
-    return () => clearTimeout(timerId);
-  }, []);
-
   // Tail wag
   useEffect(() => {
     const interval = setInterval(() => {
-      setTailPhase((p) => (p + 1) % 4);
-    }, 800);
+      setTailFrame((f) => (f + 1) % 4);
+    }, 500);
     return () => clearInterval(interval);
   }, []);
 
+  // Walk cycle (4 frames)
+  useEffect(() => {
+    if (!walking) return;
+    const interval = setInterval(() => {
+      setWalkFrame((f) => (f + 1) % 4);
+    }, 200);
+    return () => clearInterval(interval);
+  }, [walking]);
+
   const isOrange = variant === "orange";
-  const body = isOrange ? "#F5A623" : "#3D2E50";
-  const bodyDark = isOrange ? "#D4891A" : "#2A1E3A";
-  const belly = isOrange ? "#FFCC66" : "#5A4573";
+
+  // Colors
+  const body = isOrange ? "#F5A623" : "#5A4080";
+  const bodyDark = isOrange ? "#D4891A" : "#3D2E60";
+  const outline = isOrange ? "#4A3B32" : "#1A1225";
   const earInner = "#FF8FA3";
+  const eyeWhite = "#FFFFFF";
+  const pupil = isOrange ? "#2D2438" : "#7FD8BE";
+  const belly = isOrange ? "#FFCC66" : "#7A6099";
   const nose = "#4A3B32";
   const pawPad = "#E56B85";
-  const eyeWhite = "#FFFFFF";
-  const eyeIris = isOrange ? "#4A5FC1" : "#7FD8BE";
-  const eyePupil = isOrange ? "#1A1A2E" : "#0E2E28";
-  const whiskerColor = isOrange ? "#8A7768" : "#C4B5FD";
   const tailTip = isOrange ? "#4A3B32" : "#1A1225";
-  const stripeColor = isOrange ? "#D4891A" : "transparent";
+  const whisker = isOrange ? "#6B5B50" : "#A090C0";
 
-  // Tail curve based on phase
-  const tailCurves = [
-    "M52 38 C56 34, 60 28, 58 22 C56 18, 52 16, 50 19",
-    "M52 38 C57 33, 62 27, 59 21 C57 17, 53 17, 51 20",
-    "M52 38 C56 34, 60 28, 58 22 C56 18, 52 16, 50 19",
-    "M52 38 C55 35, 58 29, 57 23 C55 19, 51 17, 49 20",
+  // Walk leg offsets (simulate stepping)
+  const legOffsets = [
+    { fl: 0, fr: -1, bl: -1, br: 0 },  // frame 0
+    { fl: -1, fr: 0, bl: 0, br: -1 },  // frame 1
+    { fl: 0, fr: -1, bl: -1, br: 0 },  // frame 2
+    { fl: -1, fr: 0, bl: 0, br: -1 },  // frame 3
   ];
+  const legs = walking ? legOffsets[walkFrame] : { fl: 0, fr: 0, bl: 0, br: 0 };
 
-  const nodTransform = isNodding ? "translateY(2px)" : "translateY(0)";
+  // Body bob when walking
+  const bodyY = walking ? (walkFrame % 2 === 0 ? 0 : -0.5) : 0;
+
+  // Tail sway positions
+  const tailSway = [0, 2, 0, -2][tailFrame];
 
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 64 64"
-      fill="none"
+      viewBox="0 0 32 32"
+      shapeRendering="crispEdges"
       className={`${bounce ? "animate-cat-bounce" : ""} ${className}`}
-      style={{ overflow: "visible" }}
     >
-      {/* Tail with animation */}
-      <path
-        d={tailCurves[tailPhase]}
-        stroke={body}
-        strokeWidth="5"
-        strokeLinecap="round"
-        fill="none"
-        style={{ transition: "d 0.4s ease" }}
-      />
-      <path
-        d={tailCurves[tailPhase]}
-        stroke={tailTip}
-        strokeWidth="5"
-        strokeLinecap="round"
-        fill="none"
-        strokeDasharray="0 22 12 100"
-        style={{ transition: "d 0.4s ease" }}
-      />
+      <g transform={`translate(0, ${bodyY})`}>
+        {/* Tail */}
+        <rect x={24 + tailSway} y={12} width={2} height={2} fill={body} />
+        <rect x={25 + tailSway} y={10} width={2} height={2} fill={body} />
+        <rect x={26 + tailSway} y={8} width={2} height={2} fill={body} />
+        <rect x={25 + tailSway} y={7} width={2} height={2} fill={tailTip} />
+        <rect x={24 + tailSway} y={6} width={2} height={2} fill={tailTip} />
 
-      {/* Body */}
-      <ellipse cx="32" cy="46" rx="17" ry="14" fill={body} />
-      {/* Belly */}
-      <ellipse cx="32" cy="49" rx="11" ry="10" fill={belly} />
+        {/* Body */}
+        <rect x={8} y={16} width={16} height={10} fill={body} />
+        <rect x={9} y={15} width={14} height={2} fill={body} />
+        <rect x={10} y={17} width={12} height={7} fill={belly} />
 
-      {/* Front paws */}
-      <ellipse cx="23" cy="57" rx="5" ry="4" fill={bodyDark} />
-      <ellipse cx="41" cy="57" rx="5" ry="4" fill={bodyDark} />
-      {/* Paw pads */}
-      <ellipse cx="23" cy="58" rx="3" ry="2" fill={pawPad} opacity="0.8" />
-      <ellipse cx="41" cy="58" rx="3" ry="2" fill={pawPad} opacity="0.8" />
+        {/* Body outline */}
+        <rect x={7} y={16} width={1} height={10} fill={outline} />
+        <rect x={24} y={16} width={1} height={10} fill={outline} />
+        <rect x={8} y={14} width={16} height={1} fill={outline} />
+        <rect x={8} y={26} width={16} height={1} fill={outline} />
 
-      {/* Head group (nods) */}
-      <g style={{ transform: nodTransform, transformOrigin: "32px 30px", transition: "transform 0.3s ease" }}>
         {/* Head */}
-        <ellipse cx="32" cy="26" rx="15" ry="13.5" fill={body} />
+        <rect x={8} y={4} width={14} height={12} fill={body} />
+        <rect x={9} y={3} width={12} height={1} fill={body} />
+
+        {/* Head outline */}
+        <rect x={7} y={4} width={1} height={12} fill={outline} />
+        <rect x={22} y={4} width={1} height={12} fill={outline} />
+        <rect x={8} y={3} width={14} height={1} fill={outline} />
 
         {/* Left ear */}
-        <path d="M18 18 L16 5 L27 14 Z" fill={body} />
-        <path d="M19.5 16 L18 8 L25.5 14 Z" fill={earInner} />
+        <rect x={8} y={1} width={2} height={3} fill={body} />
+        <rect x={7} y={1} width={1} height={4} fill={outline} />
+        <rect x={10} y={2} width={1} height={2} fill={outline} />
+        <rect x={8} y={0} width={2} height={1} fill={outline} />
+        <rect x={9} y={2} width={1} height={2} fill={earInner} />
 
         {/* Right ear */}
-        <path d="M46 18 L48 5 L37 14 Z" fill={body} />
-        <path d="M44.5 16 L46 8 L38.5 14 Z" fill={earInner} />
+        <rect x={19} y={1} width={2} height={3} fill={body} />
+        <rect x={21} y={1} width={1} height={4} fill={outline} />
+        <rect x={18} y={2} width={1} height={2} fill={outline} />
+        <rect x={19} y={0} width={2} height={1} fill={outline} />
+        <rect x={20} y={2} width={1} height={2} fill={earInner} />
 
-        {/* Tabby stripes on forehead */}
-        {isOrange && (
+        {/* Eyes */}
+        {isBlinking ? (
           <>
-            <path d="M27 15 C29 13.5, 35 13.5, 37 15" stroke={stripeColor} strokeWidth="1.2" fill="none" opacity="0.6" strokeLinecap="round" />
-            <path d="M28.5 13 C30 12, 34 12, 35.5 13" stroke={stripeColor} strokeWidth="1" fill="none" opacity="0.5" strokeLinecap="round" />
-            <path d="M30 11.5 L32 10.5 L34 11.5" stroke={stripeColor} strokeWidth="0.8" fill="none" opacity="0.4" strokeLinecap="round" />
+            <rect x={10} y={9} width={3} height={1} fill={outline} />
+            <rect x={17} y={9} width={3} height={1} fill={outline} />
+          </>
+        ) : (
+          <>
+            {/* Left eye */}
+            <rect x={10} y={8} width={3} height={3} fill={eyeWhite} />
+            <rect x={11} y={9} width={2} height={2} fill={pupil} />
+            <rect x={11} y={8} width={1} height={1} fill="#FFF" />
+            {/* Right eye */}
+            <rect x={17} y={8} width={3} height={3} fill={eyeWhite} />
+            <rect x={18} y={9} width={2} height={2} fill={pupil} />
+            <rect x={18} y={8} width={1} height={1} fill="#FFF" />
           </>
         )}
 
-        {/* Eyes */}
-        <g>
-          {/* Left eye */}
-          <ellipse cx="26" cy="25" rx="4" ry={isBlinking ? 0.5 : 4.5} fill={eyeWhite} style={{ transition: "ry 0.08s ease" }} />
-          {!isBlinking && (
-            <>
-              <ellipse cx="26.5" cy="25.5" rx="2.8" ry="3.2" fill={eyeIris} />
-              <ellipse cx="26.5" cy="26" rx="1.8" ry="2.2" fill={eyePupil} />
-              <circle cx="25" cy="24" r="1.2" fill="white" opacity="0.9" />
-              <circle cx="27.5" cy="26.5" r="0.6" fill="white" opacity="0.5" />
-            </>
-          )}
-
-          {/* Right eye */}
-          <ellipse cx="38" cy="25" rx="4" ry={isBlinking ? 0.5 : 4.5} fill={eyeWhite} style={{ transition: "ry 0.08s ease" }} />
-          {!isBlinking && (
-            <>
-              <ellipse cx="38.5" cy="25.5" rx="2.8" ry="3.2" fill={eyeIris} />
-              <ellipse cx="38.5" cy="26" rx="1.8" ry="2.2" fill={eyePupil} />
-              <circle cx="37" cy="24" r="1.2" fill="white" opacity="0.9" />
-              <circle cx="39.5" cy="26.5" r="0.6" fill="white" opacity="0.5" />
-            </>
-          )}
-        </g>
-
         {/* Nose */}
-        <path d="M30.5 30 L32 32 L33.5 30 Z" fill={nose} />
-
+        <rect x={14} y={11} width={2} height={1} fill={nose} />
         {/* Mouth */}
-        <path d="M32 32 C31 33.5, 29 34, 28 33.5" stroke={nose} strokeWidth="0.9" fill="none" strokeLinecap="round" />
-        <path d="M32 32 C33 33.5, 35 34, 36 33.5" stroke={nose} strokeWidth="0.9" fill="none" strokeLinecap="round" />
+        <rect x={13} y={12} width={1} height={1} fill={nose} />
+        <rect x={16} y={12} width={1} height={1} fill={nose} />
 
         {/* Whiskers */}
-        <line x1="11" y1="27" x2="22" y2="29" stroke={whiskerColor} strokeWidth="0.9" strokeLinecap="round" />
-        <line x1="10" y1="30" x2="22" y2="31" stroke={whiskerColor} strokeWidth="0.9" strokeLinecap="round" />
-        <line x1="11" y1="33" x2="22" y2="32.5" stroke={whiskerColor} strokeWidth="0.9" strokeLinecap="round" />
-        <line x1="53" y1="27" x2="42" y2="29" stroke={whiskerColor} strokeWidth="0.9" strokeLinecap="round" />
-        <line x1="54" y1="30" x2="42" y2="31" stroke={whiskerColor} strokeWidth="0.9" strokeLinecap="round" />
-        <line x1="53" y1="33" x2="42" y2="32.5" stroke={whiskerColor} strokeWidth="0.9" strokeLinecap="round" />
+        <rect x={5} y={10} width={3} height={1} fill={whisker} />
+        <rect x={5} y={12} width={3} height={1} fill={whisker} />
+        <rect x={22} y={10} width={3} height={1} fill={whisker} />
+        <rect x={22} y={12} width={3} height={1} fill={whisker} />
 
-        {/* Cheeks (blush) */}
-        <circle cx="22" cy="31" r="3" fill={earInner} opacity="0.2" />
-        <circle cx="42" cy="31" r="3" fill={earInner} opacity="0.2" />
+        {/* Cheek blush */}
+        <rect x={9} y={11} width={2} height={2} fill={earInner} opacity={0.3} />
+        <rect x={19} y={11} width={2} height={2} fill={earInner} opacity={0.3} />
+
+        {/* Legs/Paws */}
+        {/* Front left */}
+        <rect x={9} y={26 + legs.fl} width={3} height={3} fill={bodyDark} />
+        <rect x={10} y={28 + legs.fl} width={2} height={1} fill={pawPad} />
+        {/* Front right */}
+        <rect x={18} y={26 + legs.fr} width={3} height={3} fill={bodyDark} />
+        <rect x={19} y={28 + legs.fr} width={2} height={1} fill={pawPad} />
+
+        {/* Tabby stripes (orange only) */}
+        {isOrange && (
+          <>
+            <rect x={12} y={5} width={6} height={1} fill={bodyDark} opacity={0.4} />
+            <rect x={13} y={4} width={4} height={1} fill={bodyDark} opacity={0.3} />
+          </>
+        )}
       </g>
     </svg>
   );

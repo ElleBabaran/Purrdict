@@ -180,7 +180,7 @@ export default function Hero() {
 
           {/* walking cat */}
           <div className="absolute bottom-6 animate-walk z-[15]">
-            <PixelCat size={52} bounce />
+            <PixelCat size={52} walking />
           </div>
 
           {/* bottom status bar */}
