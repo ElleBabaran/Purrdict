@@ -155,140 +155,167 @@ function formatScopes(scope: string): string {
 // ── GET: Show consent page ──
 
 export async function GET(request: NextRequest) {
-  const params = request.nextUrl.searchParams;
+  try {
+    const params = request.nextUrl.searchParams;
 
-  const clientId = params.get("client_id");
-  const redirectUri = params.get("redirect_uri");
-  const responseType = params.get("response_type");
-  const scope = params.get("scope") || "read write";
-  const state = params.get("state") || undefined;
-  const codeChallenge = params.get("code_challenge") || undefined;
-  const codeChallengeMethod = params.get("code_challenge_method") || "S256";
+    const clientId = params.get("client_id");
+    const redirectUri = params.get("redirect_uri");
+    const responseType = params.get("response_type");
+    const scope = params.get("scope") || "read write";
+    const state = params.get("state") || undefined;
+    const codeChallenge = params.get("code_challenge") || undefined;
+    const codeChallengeMethod = params.get("code_challenge_method") || "S256";
 
-  if (!clientId || !redirectUri || responseType !== "code") {
-    return new NextResponse("Invalid authorization request. Missing required parameters.", {
-      status: 400,
-      headers: { "Content-Type": "text/plain" },
-    });
-  }
-
-  // Validate client
-  const client = await getClient(clientId);
-  let clientName = "Unknown App";
-  if (client) {
-    // Validate redirect_uri matches registered URIs
-    const uriMatch = client.redirect_uris.some((uri) => {
-      // For localhost URIs, ignore port (per RFC 8252)
-      try {
-        const registered = new URL(uri);
-        const requested = new URL(redirectUri);
-        if (
-          (registered.hostname === "localhost" || registered.hostname === "127.0.0.1") &&
-          (requested.hostname === "localhost" || requested.hostname === "127.0.0.1")
-        ) {
-          return registered.pathname === requested.pathname;
-        }
-        return uri === redirectUri;
-      } catch {
-        return uri === redirectUri;
-      }
-    });
-
-    if (!uriMatch) {
-      return new NextResponse("Invalid redirect_uri for this client.", {
+    if (!clientId || !redirectUri || responseType !== "code") {
+      return new NextResponse("Invalid authorization request. Missing required parameters.", {
         status: 400,
         headers: { "Content-Type": "text/plain" },
       });
     }
-    clientName = client.client_name || "External App";
+
+    // Validate client (gracefully handle missing table)
+    let client = null;
+    try {
+      client = await getClient(clientId);
+    } catch (err) {
+      console.error("OAuth getClient error (table may not exist):", err);
+    }
+
+    let clientName = "Unknown App";
+    if (client) {
+      // Validate redirect_uri matches registered URIs
+      const uriMatch = client.redirect_uris.some((uri) => {
+        // For localhost URIs, ignore port (per RFC 8252)
+        try {
+          const registered = new URL(uri);
+          const requested = new URL(redirectUri);
+          if (
+            (registered.hostname === "localhost" || registered.hostname === "127.0.0.1") &&
+            (requested.hostname === "localhost" || requested.hostname === "127.0.0.1")
+          ) {
+            return registered.pathname === requested.pathname;
+          }
+          return uri === redirectUri;
+        } catch {
+          return uri === redirectUri;
+        }
+      });
+
+      if (!uriMatch) {
+        return new NextResponse("Invalid redirect_uri for this client.", {
+          status: 400,
+          headers: { "Content-Type": "text/plain" },
+        });
+      }
+      clientName = client.client_name || "External App";
+    }
+
+    const html = htmlPage({
+      clientName,
+      scope,
+      clientId,
+      redirectUri,
+      state,
+      codeChallenge,
+      codeChallengeMethod,
+      responseType: responseType,
+      requestedScope: scope,
+    });
+
+    return new NextResponse(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  } catch (error) {
+    console.error("OAuth authorize GET error:", error);
+    return new NextResponse("Internal server error during authorization.", {
+      status: 500,
+      headers: { "Content-Type": "text/plain" },
+    });
   }
-
-  const html = htmlPage({
-    clientName,
-    scope,
-    clientId,
-    redirectUri,
-    state,
-    codeChallenge,
-    codeChallengeMethod,
-    responseType: responseType,
-    requestedScope: scope,
-  });
-
-  return new NextResponse(html, {
-    headers: { "Content-Type": "text/html; charset=utf-8" },
-  });
 }
 
 // ── POST: Process consent ──
 
 export async function POST(request: NextRequest) {
-  const formData = await request.formData();
+  try {
+    const formData = await request.formData();
 
-  const action = formData.get("action") as string;
-  const clientId = formData.get("client_id") as string;
-  const redirectUri = formData.get("redirect_uri") as string;
-  const state = formData.get("state") as string;
-  const codeChallenge = formData.get("code_challenge") as string;
-  const codeChallengeMethod = formData.get("code_challenge_method") as string;
-  const scope = formData.get("scope") as string;
-  const email = formData.get("email") as string;
-  const password = formData.get("password") as string;
+    const action = formData.get("action") as string;
+    const clientId = formData.get("client_id") as string;
+    const redirectUri = formData.get("redirect_uri") as string;
+    const state = formData.get("state") as string;
+    const codeChallenge = formData.get("code_challenge") as string;
+    const codeChallengeMethod = formData.get("code_challenge_method") as string;
+    const scope = formData.get("scope") as string;
+    const email = formData.get("email") as string;
+    const password = formData.get("password") as string;
 
-  // User denied
-  if (action === "deny") {
-    const denyUrl = new URL(redirectUri);
-    denyUrl.searchParams.set("error", "access_denied");
-    denyUrl.searchParams.set("error_description", "User denied the request");
-    if (state) denyUrl.searchParams.set("state", state);
-    return NextResponse.redirect(denyUrl.toString(), 302);
-  }
+    // User denied
+    if (action === "deny") {
+      const denyUrl = new URL(redirectUri);
+      denyUrl.searchParams.set("error", "access_denied");
+      denyUrl.searchParams.set("error_description", "User denied the request");
+      if (state) denyUrl.searchParams.set("state", state);
+      return NextResponse.redirect(denyUrl.toString(), 302);
+    }
 
-  // Authenticate user
-  const user = await queryOne<{
-    id: string;
-    email: string;
-    password_hash: string;
-    display_name: string;
-  }>("SELECT id, email, password_hash, display_name FROM users WHERE email = $1", [
-    email.toLowerCase(),
-  ]);
+    // Authenticate user
+    const user = await queryOne<{
+      id: string;
+      email: string;
+      password_hash: string;
+      display_name: string;
+    }>("SELECT id, email, password_hash, display_name FROM users WHERE email = $1", [
+      email.toLowerCase(),
+    ]);
 
-  if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-    // Re-render with error
-    const client = await getClient(clientId);
-    const html = htmlPage({
-      clientName: client?.client_name || "External App",
-      scope,
-      error: "Invalid email or password. Please try again.",
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+      // Re-render with error
+      let client = null;
+      try {
+        client = await getClient(clientId);
+      } catch {
+        // table may not exist
+      }
+      const html = htmlPage({
+        clientName: client?.client_name || "External App",
+        scope,
+        error: "Invalid email or password. Please try again.",
+        clientId,
+        redirectUri,
+        state: state || undefined,
+        codeChallenge: codeChallenge || undefined,
+        codeChallengeMethod: codeChallengeMethod || "S256",
+        responseType: "code",
+        requestedScope: scope,
+      });
+      return new NextResponse(html, {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    // Generate authorization code
+    const code = await createAuthorizationCode({
       clientId,
+      userId: user.id,
       redirectUri,
-      state: state || undefined,
+      scope: scope || undefined,
       codeChallenge: codeChallenge || undefined,
       codeChallengeMethod: codeChallengeMethod || "S256",
-      responseType: "code",
-      requestedScope: scope,
     });
-    return new NextResponse(html, {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+
+    // Redirect back with code
+    const callbackUrl = new URL(redirectUri);
+    callbackUrl.searchParams.set("code", code);
+    if (state) callbackUrl.searchParams.set("state", state);
+
+    return NextResponse.redirect(callbackUrl.toString(), 302);
+  } catch (error) {
+    console.error("OAuth authorize POST error:", error);
+    return new NextResponse("Internal server error during authorization.", {
+      status: 500,
+      headers: { "Content-Type": "text/plain" },
     });
   }
-
-  // Generate authorization code
-  const code = await createAuthorizationCode({
-    clientId,
-    userId: user.id,
-    redirectUri,
-    scope: scope || undefined,
-    codeChallenge: codeChallenge || undefined,
-    codeChallengeMethod: codeChallengeMethod || "S256",
-  });
-
-  // Redirect back with code
-  const callbackUrl = new URL(redirectUri);
-  callbackUrl.searchParams.set("code", code);
-  if (state) callbackUrl.searchParams.set("state", state);
-
-  return NextResponse.redirect(callbackUrl.toString(), 302);
 }
