@@ -11,7 +11,6 @@ const nextConfig: NextConfig = {
     "@temporalio/worker",
     "@temporalio/workflow",
     "@temporalio/activity",
-    "pg",
     "bcryptjs",
     "jsonwebtoken",
   ],

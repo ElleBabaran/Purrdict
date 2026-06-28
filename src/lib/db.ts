@@ -1,36 +1,17 @@
 /**
- * PostgreSQL connection pool.
- * Uses the `pg` package directly — no ORM, no Supabase.
+ * Neon PostgreSQL connection (serverless-optimized).
  *
  * Set DATABASE_URL in your .env.local:
- *   DATABASE_URL=postgres://user:pass@host:5432/purrdict
+ *   DATABASE_URL=postgresql://user:pass@ep-xxx.region.neon.tech/neondb?sslmode=require
  *
- * If DATABASE_URL is not set, the app runs in "demo mode"
- * (localStorage only, no persistence to DB).
+ * If DATABASE_URL is not set, the app runs in "demo mode".
  */
 
-import { Pool } from "pg";
+import { Pool } from "@neondatabase/serverless";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
-// Only create pool if DATABASE_URL is configured
-const pool = DATABASE_URL
-  ? new Pool({
-      connectionString: DATABASE_URL,
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
-      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
-    })
-  : null;
-
-if (pool) {
-  pool.on("error", (err) => {
-    console.error("Unexpected PG pool error:", err);
-  });
-}
-
-export default pool;
+const pool = DATABASE_URL ? new Pool({ connectionString: DATABASE_URL }) : null;
 
 /**
  * Check if database is available.
@@ -40,8 +21,7 @@ export function isDbAvailable(): boolean {
 }
 
 /**
- * Helper: execute a parameterized query.
- * Throws if DB is not configured.
+ * Execute a parameterized query.
  */
 export async function query<T = Record<string, unknown>>(
   text: string,
@@ -55,7 +35,7 @@ export async function query<T = Record<string, unknown>>(
 }
 
 /**
- * Helper: execute and return single row or null.
+ * Execute and return single row or null.
  */
 export async function queryOne<T = Record<string, unknown>>(
   text: string,
@@ -64,3 +44,5 @@ export async function queryOne<T = Record<string, unknown>>(
   const rows = await query<T>(text, params);
   return rows[0] || null;
 }
+
+export default pool;
