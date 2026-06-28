@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
-import { query } from "@/lib/db";
+import { query, isDbAvailable } from "@/lib/db";
 
 const JWT_SECRET = process.env.JWT_SECRET || "purrdict-dev-secret-change-in-prod";
 
@@ -30,6 +30,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Name and ESP32 PIN are required." }, { status: 400 });
     }
 
+    // Demo mode
+    if (!isDbAvailable()) {
+      return NextResponse.json({ id: "demo-cat-" + Date.now(), success: true });
+    }
+
     // Sanitize PIN
     if (typeof esp32Pin !== "string" || !/^[A-Za-z0-9]{6}$/.test(esp32Pin)) {
       return NextResponse.json({ error: "PIN must be 6 alphanumeric characters." }, { status: 400 });
@@ -54,6 +59,11 @@ export async function GET(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  // Demo mode
+  if (!isDbAvailable()) {
+    return NextResponse.json({ cats: [] });
   }
 
   try {

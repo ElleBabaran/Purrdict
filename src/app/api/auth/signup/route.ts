@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { query, queryOne } from "@/lib/db";
+import { query, queryOne, isDbAvailable } from "@/lib/db";
 
 const JWT_SECRET = process.env.JWT_SECRET || "purrdict-dev-secret-change-in-prod";
 
@@ -21,6 +21,25 @@ export async function POST(request: NextRequest) {
     }
     if (typeof displayName !== "string" || displayName.length < 1) {
       return NextResponse.json({ error: "Display name is required." }, { status: 400 });
+    }
+
+    // Demo mode — no DB configured
+    if (!isDbAvailable()) {
+      const userId = "demo-" + Date.now();
+      const token = jwt.sign(
+        { userId, email: email.toLowerCase() },
+        JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+      return NextResponse.json({
+        user: {
+          id: userId,
+          email: email.toLowerCase(),
+          displayName,
+          cats: [],
+        },
+        token,
+      });
     }
 
     // Check if email already exists
