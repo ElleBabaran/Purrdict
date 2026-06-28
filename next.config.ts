@@ -13,6 +13,8 @@ const nextConfig: NextConfig = {
     "@temporalio/activity",
     "bcryptjs",
     "jsonwebtoken",
+    "mcp-handler",
+    "@modelcontextprotocol/sdk",
   ],
 
   // Security headers

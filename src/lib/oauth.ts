@@ -71,7 +71,7 @@ export function getAuthorizationServerMetadata() {
 export function getProtectedResourceMetadata() {
   const baseUrl = getBaseUrl();
   return {
-    resource: baseUrl,
+    resource: `${baseUrl}/api/mcp/mcp`,
     authorization_servers: [getIssuer()],
     scopes_supported: ["read", "write", "offline_access"],
     bearer_methods_supported: ["header"],
