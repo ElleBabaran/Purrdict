@@ -153,13 +153,11 @@ export default function TutorialOverlay({ onComplete }: { onComplete: () => void
     <div
       className={`fixed inset-0 z-[999] flex items-end justify-center transition-all duration-300 ${
         visible ? "opacity-100" : "opacity-0 pointer-events-none"
-      }`}
+      } ${waitingForTap ? "pointer-events-none" : ""}`}
     >
       {/* Backdrop — allow clicks through to bottom nav when waiting */}
       <div
-        className={`absolute inset-0 transition-opacity duration-300 ${
-          waitingForTap ? "pointer-events-none" : ""
-        }`}
+        className="absolute inset-0 transition-opacity duration-300"
         style={{ background: "rgba(26,18,37,0.7)", backdropFilter: "blur(3px)" }}
       />
 
@@ -170,7 +168,7 @@ export default function TutorialOverlay({ onComplete }: { onComplete: () => void
 
       {/* Tutorial Card */}
       <div
-        className={`relative z-[1001] w-full max-w-md mx-4 transition-all duration-300 ${
+        className={`relative z-[1001] w-full max-w-md mx-4 transition-all duration-300 pointer-events-auto ${
           waitingForTap ? "mb-32" : "mb-28"
         } ${visible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"}`}
       >
@@ -178,7 +176,7 @@ export default function TutorialOverlay({ onComplete }: { onComplete: () => void
         <div className="flex justify-center mb-3">
           <div className="relative">
             <div className="animate-bob">
-              <PixelCat size={56} variant="orange" bounce={isLast} />
+              <PixelCat size={56} variant="orange" bounce={isLast} walking={!isFirst && !isLast} />
             </div>
             {waitingForTap && (
               <div className="absolute -top-3 -right-3 text-xl animate-bounce">👇</div>
