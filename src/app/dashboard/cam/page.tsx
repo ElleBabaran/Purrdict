@@ -284,39 +284,136 @@ export default function CamPage() {
 
                 {status === "connected" ? (
                   <>
-                    {/* Simulated feed bg */}
+                    {/* Pixel art room scene background */}
+                    <div className="absolute inset-0 overflow-hidden">
+                      {/* Night sky gradient */}
+                      <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, #0E0820 0%, #1A1040 30%, #2A1850 60%, #1E1235 100%)" }} />
+
+                      {/* Stars */}
+                      <div className="absolute top-[12%] left-[20%] w-1 h-1 bg-white/60 animate-twinkle" />
+                      <div className="absolute top-[8%] left-[55%] w-1.5 h-1.5 bg-white/40 animate-twinkle" style={{ animationDelay: "1s" }} />
+                      <div className="absolute top-[15%] left-[75%] w-1 h-1 bg-white/50 animate-twinkle" style={{ animationDelay: "2s" }} />
+                      <div className="absolute top-[20%] left-[40%] w-0.5 h-0.5 bg-white/30 animate-twinkle" style={{ animationDelay: "0.5s" }} />
+                      <div className="absolute top-[6%] left-[85%] w-1 h-1 bg-white/40 animate-twinkle" style={{ animationDelay: "1.5s" }} />
+
+                      {/* Moon */}
+                      <div
+                        className="absolute top-[8%] left-[15%] w-10 h-10 rounded-full"
+                        style={{ background: "radial-gradient(circle, #C8B8E8 0%, #9080B0 60%, #6050A0 100%)", boxShadow: "0 0 20px rgba(200,184,232,0.3)" }}
+                      />
+
+                      {/* Pixel clouds */}
+                      <div className="absolute top-[18%] left-[30%] flex gap-0">
+                        {[1,1,1,1,1,1].map((_, i) => (
+                          <div key={`c1-${i}`} className="w-2.5 h-2 rounded-sm" style={{ background: "rgba(80,70,120,0.6)" }} />
+                        ))}
+                      </div>
+                      <div className="absolute top-[14%] left-[65%] flex gap-0">
+                        {[1,1,1,1].map((_, i) => (
+                          <div key={`c2-${i}`} className="w-2 h-1.5 rounded-sm" style={{ background: "rgba(80,70,120,0.4)" }} />
+                        ))}
+                      </div>
+
+                      {/* Window frame (pixel style) */}
+                      <div
+                        className="absolute bottom-[25%] left-[10%] right-[10%] top-[35%]"
+                        style={{ border: "3px solid #3A3050", background: "rgba(20,15,40,0.3)" }}
+                      >
+                        {/* Window dividers */}
+                        <div className="absolute left-1/2 top-0 bottom-0 w-[3px] bg-[#3A3050]" />
+                        <div className="absolute top-1/2 left-0 right-0 h-[3px] bg-[#3A3050]" />
+
+                        {/* City skyline silhouette through window */}
+                        <div className="absolute bottom-0 left-0 right-0 h-[40%] flex items-end justify-center gap-[1px]">
+                          {[18,30,22,35,28,15,40,20,32,25,18,36,22,28,15,20,38,24,30,16,22,35].map((h, i) => (
+                            <div
+                              key={`bld-${i}`}
+                              className="flex-1"
+                              style={{
+                                height: `${h + 20}%`,
+                                background: `linear-gradient(180deg, #2A2050 0%, #1A1030 100%)`,
+                                borderTop: "1px solid #3A3060",
+                              }}
+                            >
+                              {/* Building windows */}
+                              {h > 25 && (
+                                <div className="flex flex-wrap gap-[1px] p-[1px] mt-1">
+                                  {Array.from({ length: Math.floor(h / 12) }).map((_, j) => (
+                                    <div
+                                      key={j}
+                                      className="w-[2px] h-[2px]"
+                                      style={{ background: Math.random() > 0.5 ? "#FFE4A0" : "transparent", opacity: 0.7 }}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Floor / windowsill */}
+                      <div
+                        className="absolute bottom-0 left-0 right-0 h-[25%]"
+                        style={{ background: "linear-gradient(180deg, #1A1030 0%, #0E0820 100%)" }}
+                      />
+                      <div
+                        className="absolute bottom-[24%] left-0 right-0 h-[3px]"
+                        style={{ background: "#3A3050" }}
+                      />
+
+                      {/* Cat silhouette sitting on windowsill */}
+                      <div className="absolute bottom-[25%] left-1/2 -translate-x-1/2 z-[6]">
+                        <PixelCat size={72} variant="night" />
+                      </div>
+
+                      {/* Tail shadow on floor */}
+                      <div
+                        className="absolute bottom-[18%] left-[52%] w-8 h-1 rounded-full"
+                        style={{ background: "rgba(0,0,0,0.3)" }}
+                      />
+                    </div>
+
+                    {/* Scan line animation overlay */}
                     <div
-                      className="absolute inset-0"
-                      style={{
-                        background: "repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0 2px, transparent 2px 4px), linear-gradient(160deg, #2A2040 0%, #0E0B14 100%)",
-                      }}
+                      className="absolute inset-0 animate-scan z-[8] pointer-events-none"
+                      style={{ background: "linear-gradient(transparent 0%, rgba(127,216,190,0.03) 50%, transparent 100%)" }}
                     />
-                    {/* Scan line animation */}
-                    <div
-                      className="absolute inset-0 animate-scan z-[5]"
-                      style={{ background: "linear-gradient(transparent 0%, rgba(127,216,190,0.04) 50%, transparent 100%)" }}
-                    />
+
+                    {/* Scanlines texture */}
+                    <div className="absolute inset-0 z-[9] pointer-events-none" style={{
+                      backgroundImage: "repeating-linear-gradient(0deg, rgba(0,0,0,0.1) 0 1px, transparent 1px 3px)",
+                    }} />
 
                     {/* Header overlay */}
                     <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 z-20">
-                      <span className="font-pixel text-[6px] text-white/40">CH1 · 480p · 30fps</span>
-                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-full" style={{ background: "rgba(0,0,0,0.5)" }}>
-                        {isRecording && <span className="w-1.5 h-1.5 rounded-full bg-[#FF5C5C] animate-blink" />}
-                        <span className="font-pixel text-[7px] text-white/80">{currentTime}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs">📷</span>
+                        <span className="font-pixel text-[7px] text-white/70">ESP32 COLLAR CAM</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isRecording && (
+                          <div className="flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#FF5C5C] animate-blink" />
+                            <span className="font-pixel text-[6px] text-[#FF5C5C]">REC</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1 px-2 py-1 rounded-full" style={{ background: "rgba(0,0,0,0.5)" }}>
+                          <span className="w-1.5 h-1.5 rounded-full bg-[var(--coral)] animate-blink" />
+                          <span className="font-pixel text-[7px] text-white/80">{currentTime}</span>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Cat in center */}
-                    <div className="absolute inset-0 flex items-center justify-center z-[5]">
-                      <div className="animate-cam-idle">
-                        <PixelCat size={80} variant="night" />
-                      </div>
+                    {/* Tech info */}
+                    <div className="absolute top-10 left-4 z-20">
+                      <span className="font-pixel text-[5px] text-white/30">CH1 · 480p · 30fps</span>
                     </div>
 
-                    {/* Bottom bar */}
+                    {/* Bottom status bar */}
                     <div
                       className="absolute bottom-0 left-0 right-0 px-4 py-3 z-20 flex items-center gap-2"
-                      style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.75))" }}
+                      style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.8))" }}
                     >
                       <span className="w-2 h-2 rounded-full bg-[var(--mint)] animate-blink" />
                       <span className="font-pixel text-[7px] text-[var(--yellow)]">
