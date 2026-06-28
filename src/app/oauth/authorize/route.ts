@@ -227,10 +227,15 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("OAuth authorize GET error:", error);
-    return new NextResponse("Internal server error during authorization.", {
-      status: 500,
-      headers: { "Content-Type": "text/plain" },
-    });
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const errStack = error instanceof Error ? error.stack : "";
+    return new NextResponse(
+      `Internal server error during authorization.\n\nDebug: ${errMsg}\n${errStack}`,
+      {
+        status: 500,
+        headers: { "Content-Type": "text/plain" },
+      }
+    );
   }
 }
 
@@ -313,9 +318,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(callbackUrl.toString(), 302);
   } catch (error) {
     console.error("OAuth authorize POST error:", error);
-    return new NextResponse("Internal server error during authorization.", {
-      status: 500,
-      headers: { "Content-Type": "text/plain" },
-    });
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const errStack = error instanceof Error ? error.stack : "";
+    return new NextResponse(
+      `Internal server error during authorization.\n\nDebug: ${errMsg}\n${errStack}`,
+      {
+        status: 500,
+        headers: { "Content-Type": "text/plain" },
+      }
+    );
   }
 }
