@@ -105,9 +105,9 @@ export default function TutorialOverlay({ onComplete }: { onComplete: () => void
     if (!waitingForTap) return;
     const current = TUTORIAL_STEPS[step];
     if (current.action === "tap-tab" && current.targetHref && pathname === current.targetHref) {
-      // User tapped the correct tab — advance to next step
+      // User tapped the correct tab — advance immediately
       setWaitingForTap(false);
-      setTimeout(() => setStep((s) => s + 1), 400);
+      setStep((s) => s + 1);
     }
   }, [pathname, waitingForTap, step]);
 
