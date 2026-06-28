@@ -1,4 +1,5 @@
-import PixelCat from "@/components/PixelCat";
+"use client";
+import CatRoom from "@/components/CatRoom";
 
 export default function Showcase() {
   return (
@@ -18,134 +19,15 @@ export default function Showcase() {
             streamed straight to your phone.
           </p>
 
-          {/* Camera feed card */}
-          <div
-            className="rounded-2xl overflow-hidden mb-5"
-            style={{
-              background: "var(--plum-xl)",
-              border: "2.5px solid var(--cocoa)",
-              boxShadow: "5px 5px 0 var(--cocoa)",
-            }}
-          >
-            <div
-              className="flex items-center justify-between px-4 py-2.5"
-              style={{ background: "var(--plum-lt)", borderBottom: "2px solid rgba(255,255,255,0.06)" }}
-            >
-              <span className="font-pixel text-[8px] text-[var(--yellow)]">📷 ESP32 COLLAR CAM</span>
-              <span className="flex items-center gap-1.5 font-pixel text-[7px] text-[#FF5C5C]">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#FF5C5C] animate-blink" />
-                REC
-              </span>
-            </div>
-            <div
-              className="relative h-44 md:h-52 overflow-hidden"
-              style={{
-                background:
-                  "repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0 1px, transparent 1px 3px), linear-gradient(160deg, #2D2438 0%, #0E0B14 100%)",
-              }}
-            >
-              <div
-                className="absolute inset-0"
-                style={{
-                  background: "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.5) 100%)",
-                }}
-              />
-              <div
-                className="absolute inset-0 animate-scan"
-                style={{
-                  background: "linear-gradient(transparent 0%, rgba(127,216,190,0.05) 50%, transparent 100%)",
-                }}
-              />
-              <span className="absolute top-2.5 right-2.5 font-pixel text-[7px] text-white/80 bg-black/50 px-2 py-1 rounded flex items-center gap-1.5 z-10">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#FF5C5C] animate-blink" />
-                12:04 PM
-              </span>
-              <span className="absolute top-2.5 left-2.5 font-pixel text-[6px] text-white/40 z-10">
-                CH1 · 480p · 30fps
-              </span>
-              <div className="absolute bottom-10 left-1/2 -translate-x-1/2 animate-cam-idle z-[5]">
-                <PixelCat size={56} variant="night" />
-              </div>
-              <div
-                className="absolute bottom-0 left-0 right-0 px-3 py-2.5 font-pixel text-[7px] text-[var(--yellow)] z-10 flex items-center gap-2"
-                style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.7))" }}
-              >
-                🐟 Currently: investigating the snack drawer
-              </div>
-            </div>
-          </div>
-
-          {/* Map card */}
+          {/* Cat's World preview */}
           <div
             className="rounded-2xl overflow-hidden"
             style={{
-              background: "var(--plum-xl)",
-              border: "2.5px solid var(--cocoa)",
-              boxShadow: "4px 4px 0 var(--cocoa)",
+              border: "3px solid var(--cocoa)",
+              boxShadow: "5px 5px 0 var(--cocoa)",
             }}
           >
-            <div
-              className="flex items-center justify-between px-4 py-2.5"
-              style={{ background: "var(--plum-lt)", borderBottom: "1.5px solid rgba(255,255,255,0.06)" }}
-            >
-              <span className="font-pixel text-[8px] text-[var(--yellow)]">🗺️ TODAY&apos;S TRAIL</span>
-              <span className="font-pixel text-[7px] text-[var(--mint)]">7 STOPS</span>
-            </div>
-            <div
-              className="relative h-40 md:h-48 overflow-hidden"
-              style={{
-                background:
-                  "linear-gradient(rgba(127,216,190,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(127,216,190,0.06) 1px, transparent 1px), #0E0B14",
-                backgroundSize: "16px 16px",
-              }}
-            >
-              {/* room outlines */}
-              <div className="absolute rounded-sm" style={{ top: 10, left: 10, width: "40%", height: "42%", border: "1px dashed rgba(255,255,255,0.12)" }}>
-                <span className="absolute top-1 left-1.5 font-pixel text-[5px] text-white/25">BEDROOM</span>
-              </div>
-              <div className="absolute rounded-sm" style={{ top: 10, right: 10, width: "35%", height: "58%", border: "1px dashed rgba(255,255,255,0.12)" }}>
-                <span className="absolute top-1 left-1.5 font-pixel text-[5px] text-white/25">KITCHEN</span>
-              </div>
-              <div className="absolute rounded-sm" style={{ bottom: 10, left: 10, width: "55%", height: "36%", border: "1px dashed rgba(255,255,255,0.12)" }}>
-                <span className="absolute top-1 left-1.5 font-pixel text-[5px] text-white/25">LIVING RM</span>
-              </div>
-
-              {/* dotted path */}
-              <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: "none" }}>
-                <path
-                  d="M 50 45 Q 90 70 120 100 Q 160 85 200 75 Q 230 110 260 120"
-                  fill="none"
-                  stroke="rgba(127,216,190,0.25)"
-                  strokeWidth="1.5"
-                  strokeDasharray="4 5"
-                />
-              </svg>
-
-              {/* pins */}
-              {[
-                { emoji: "💤", top: "22%", left: "18%", delay: "0.4s" },
-                { emoji: "🍽️", top: "32%", left: "65%", delay: "0.9s" },
-                { emoji: "🧶", top: "58%", left: "35%", delay: "1.4s" },
-                { emoji: "☀️", top: "62%", left: "70%", delay: "1.9s" },
-              ].map((p, i) => (
-                <div
-                  key={i}
-                  className="absolute animate-pin-pop"
-                  style={{ top: p.top, left: p.left, animationDelay: p.delay, opacity: 0 }}
-                >
-                  <div
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-sm"
-                    style={{
-                      background: "rgba(255,209,102,0.12)",
-                      border: "1.5px solid rgba(255,209,102,0.3)",
-                      boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
-                    }}
-                  >
-                    {p.emoji}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <CatRoom activity="walking" catName="Mochi" timeOfDay="day" />
           </div>
         </div>
       </section>
