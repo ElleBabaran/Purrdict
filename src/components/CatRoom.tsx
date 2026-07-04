@@ -295,7 +295,7 @@ export default function CatRoom({
           {activity === "walking" && "Exploring around~"}
           {activity === "sitting" && "Just vibing~"}
         </span>
-        <span className="font-pixel text-[6px] text-white/40">ESP32 COLLAR</span>
+        <span className="font-pixel text-[6px] text-white/40">ESP32 LEASH</span>
       </div>
     </div>
   );

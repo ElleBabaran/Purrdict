@@ -1,163 +1,219 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import TopBar from "@/components/nav/TopBar";
-import { mapPins } from "@/lib/mockData";
+import GpsMap from "@/components/GpsMap";
+import { useAuth } from "@/lib/AuthContext";
+
+// Simulated GPS path — cat wandering around a neighborhood
+// These coordinates form a realistic walking path near a home
+// Center: 14.5995, 120.9842 (Manila area — change to your actual location if you want)
+const HOME: [number, number] = [14.5995, 120.9842];
+const GEOFENCE_RADIUS = 80; // meters
+
+const GPS_PATH: { lat: number; lng: number; label: string }[] = [
+  { lat: 14.5995, lng: 120.9842, label: "Home" },
+  { lat: 14.5996, lng: 120.9844, label: "Front yard" },
+  { lat: 14.5998, lng: 120.9845, label: "Sidewalk" },
+  { lat: 14.6000, lng: 120.9846, label: "Neighbor's fence" },
+  { lat: 14.6002, lng: 120.9845, label: "Under the car" },
+  { lat: 14.6003, lng: 120.9843, label: "Garden" },
+  { lat: 14.6004, lng: 120.9840, label: "Tree spot" },
+  { lat: 14.6003, lng: 120.9838, label: "Wall corner" },
+  { lat: 14.6001, lng: 120.9837, label: "Alley" },
+  { lat: 14.5999, lng: 120.9838, label: "Drain pipe" },
+  { lat: 14.5997, lng: 120.9839, label: "Back gate" },
+  { lat: 14.5996, lng: 120.9841, label: "Backyard" },
+  { lat: 14.5995, lng: 120.9842, label: "Home" },
+];
+
+// Trail stops — these are the static markers showing where the cat rested
+const TRAIL_STOPS = [
+  { lat: 14.6000, lng: 120.9846, label: "Sunbathing", time: "9:15 AM", emoji: "☀️" },
+  { lat: 14.6003, lng: 120.9843, label: "Bird watching", time: "10:02 AM", emoji: "🐦" },
+  { lat: 14.6004, lng: 120.9840, label: "Nap under tree", time: "11:30 AM", emoji: "😴" },
+  { lat: 14.5999, lng: 120.9838, label: "Hunting lizard", time: "1:45 PM", emoji: "🦎" },
+  { lat: 14.5996, lng: 120.9841, label: "Grooming", time: "2:20 PM", emoji: "✨" },
+];
 
 export default function MapPage() {
-  const [selected, setSelected] = useState(mapPins[0].id);
-  const pin = mapPins.find((p) => p.id === selected)!;
+  const { user } = useAuth();
+  const catName = user?.cats[0]?.name || "Mochi";
+
+  const [currentPos, setCurrentPos] = useState<[number, number]>(HOME);
+  const [pathIndex, setPathIndex] = useState(0);
+  const [status, setStatus] = useState("At home");
+  const [distance, setDistance] = useState(0);
+  const [currentTime, setCurrentTime] = useState("");
+
+  // Clock
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      setCurrentTime(now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }));
+    };
+    update();
+    const interval = setInterval(update, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Simulate GPS movement — cat moves every 3 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPathIndex((prev) => {
+        const next = (prev + 1) % GPS_PATH.length;
+        const point = GPS_PATH[next];
+        setCurrentPos([point.lat, point.lng]);
+        setStatus(point.label);
+
+        // Calculate distance from home (rough meters)
+        const dLat = (point.lat - HOME[0]) * 111320;
+        const dLng = (point.lng - HOME[1]) * 111320 * Math.cos(HOME[0] * Math.PI / 180);
+        setDistance(Math.round(Math.sqrt(dLat * dLat + dLng * dLng)));
+
+        return next;
+      });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const isInsideGeofence = distance <= GEOFENCE_RADIUS;
 
   return (
     <>
-      <TopBar title="▸ TODAY'S TRAIL" />
+      <TopBar title="▸ GPS TRACKER" />
       <div className="px-4 py-5 space-y-4">
 
-        {/* ── Map card ── */}
+        {/* ── GPS Map ── */}
         <div
           className="rounded-2xl overflow-hidden"
           style={{
-            background: "var(--plum-xl)",
             border: "2px solid var(--plum-lt)",
             boxShadow: "4px 4px 0 var(--cocoa)",
+            background: "var(--plum-xl)",
           }}
         >
-          {/* header */}
+          {/* Header */}
           <div
             className="flex items-center justify-between px-4 py-3"
             style={{ borderBottom: "1.5px solid rgba(255,255,255,0.06)" }}
           >
-            <span className="font-pixel text-[8px] text-[var(--yellow)]">🗺️ HOME MAP</span>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ background: "rgba(127,216,190,0.1)", border: "1px solid rgba(127,216,190,0.2)" }}>
-              <span className="font-pixel text-[7px] text-[var(--mint)]">{mapPins.length} STOPS</span>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#7FD8BE] animate-blink" />
+              <span className="font-pixel text-[8px] text-[var(--mint)]">GPS LIVE</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-pixel text-[7px] text-white/40">{currentTime}</span>
+              <span className="font-pixel text-[7px] text-white/40">·</span>
+              <span className="font-pixel text-[7px] text-white/40">ESP32</span>
             </div>
           </div>
 
-          {/* map grid */}
-          <div
-            className="relative h-72"
-            style={{
-              background:
-                "linear-gradient(rgba(127,216,190,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(127,216,190,0.08) 1px, transparent 1px), #0E0B14",
-              backgroundSize: "20px 20px",
-            }}
-          >
-            {/* room outlines */}
-            {[
-              { label: "BEDROOM",   style: { top: 10, left: 10, width: "40%", height: "40%" }   },
-              { label: "KITCHEN",   style: { top: 10, right: 10, width: "36%", height: "62%" }  },
-              { label: "LIVING RM", style: { bottom: 10, left: 10, width: "62%", height: "36%" }},
-            ].map((r) => (
+          {/* Map */}
+          <GpsMap
+            catName={catName}
+            homePosition={HOME}
+            geofenceRadius={GEOFENCE_RADIUS}
+            trail={TRAIL_STOPS}
+            currentPosition={currentPos}
+          />
+
+          {/* Legend */}
+          <div className="flex items-center gap-3 px-4 py-2.5" style={{ borderTop: "1.5px solid rgba(255,255,255,0.06)" }}>
+            <span className="flex items-center gap-1 text-[10px] text-white/60">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#FF8FA3]" /> {catName}
+            </span>
+            <span className="flex items-center gap-1 text-[10px] text-white/60">
+              <span className="w-2.5 h-2.5 rounded-full" style={{ border: "1.5px dashed #4FAE94" }} /> Safe zone
+            </span>
+            <span className="flex items-center gap-1 text-[10px] text-white/60">
+              <span className="w-4 h-0.5 bg-[#FFD166] rounded" /> Trail
+            </span>
+          </div>
+        </div>
+
+        {/* ── Status Card ── */}
+        <div className="glass-card p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">📍</span>
+              <div>
+                <div className="text-[14px] font-bold text-[var(--cocoa)]">{status}</div>
+                <div className="font-pixel text-[7px] text-[var(--cocoa-lt)] mt-0.5">
+                  {distance}m from home · Updated live
+                </div>
+              </div>
+            </div>
+            <div
+              className="px-3 py-1.5 rounded-full font-pixel text-[7px]"
+              style={{
+                background: isInsideGeofence ? "rgba(79,174,148,0.12)" : "rgba(255,107,107,0.12)",
+                border: `1.5px solid ${isInsideGeofence ? "rgba(79,174,148,0.4)" : "rgba(255,107,107,0.4)"}`,
+                color: isInsideGeofence ? "var(--mint-dk)" : "var(--coral)",
+              }}
+            >
+              {isInsideGeofence ? "● SAFE ZONE" : "⚠ OUTSIDE"}
+            </div>
+          </div>
+
+          {/* Distance bar */}
+          <div className="relative h-2 rounded-full overflow-hidden" style={{ background: "var(--cream2)" }}>
+            <div
+              className="absolute left-0 top-0 h-full rounded-full transition-all duration-1000"
+              style={{
+                width: `${Math.min((distance / GEOFENCE_RADIUS) * 100, 100)}%`,
+                background: isInsideGeofence
+                  ? "linear-gradient(90deg, var(--mint), var(--mint-dk))"
+                  : "linear-gradient(90deg, var(--coral), #FF4444)",
+              }}
+            />
+          </div>
+          <div className="flex justify-between mt-1.5">
+            <span className="font-pixel text-[6px] text-[var(--cocoa-lt)]">HOME</span>
+            <span className="font-pixel text-[6px] text-[var(--cocoa-lt)]">{GEOFENCE_RADIUS}M LIMIT</span>
+          </div>
+        </div>
+
+        {/* ── Today's Stops ── */}
+        <div className="glass-card p-4">
+          <div className="font-pixel text-[8px] text-[var(--cocoa-lt)] mb-3">TODAY&apos;S STOPS</div>
+          <div className="space-y-2">
+            {TRAIL_STOPS.map((stop, i) => (
               <div
-                key={r.label}
-                className="absolute rounded"
-                style={{
-                  ...r.style,
-                  border: "1.5px dashed rgba(255,255,255,0.12)",
-                  background: "rgba(255,255,255,0.015)",
-                }}
+                key={i}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
+                style={{ background: "var(--cream)" }}
               >
-                <span className="absolute top-1.5 left-2 font-pixel text-[5.5px] text-white/25 tracking-wider">
-                  {r.label}
-                </span>
+                <div
+                  className="w-9 h-9 rounded-lg flex items-center justify-center text-base flex-shrink-0"
+                  style={{ background: "var(--cream2)", border: "1.5px solid var(--cocoa)" }}
+                >
+                  {stop.emoji}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-bold text-[var(--cocoa)] truncate">{stop.label}</div>
+                  <div className="font-pixel text-[7px] text-[var(--cocoa-lt)] mt-0.5">{stop.time}</div>
+                </div>
               </div>
             ))}
-
-            {/* path line (decorative) */}
-            <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: "none" }}>
-              <polyline
-                points={mapPins
-                  .map((p) => {
-                    // map xPct/yPct to rough pixel coords in the 288px height container
-                    return `${p.xPct * 3.2},${p.yPct * 2.88}`;
-                  })
-                  .join(" ")}
-                fill="none"
-                stroke="rgba(127,216,190,0.2)"
-                strokeWidth="1.5"
-                strokeDasharray="4 4"
-              />
-            </svg>
-
-            {/* pins */}
-            {mapPins.map((p) => {
-              const isSelected = selected === p.id;
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => setSelected(p.id)}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-200 group"
-                  style={{
-                    left: `${p.xPct}%`,
-                    top: `${p.yPct}%`,
-                    zIndex: isSelected ? 20 : 10,
-                  }}
-                  aria-label={p.label}
-                >
-                  <div
-                    className="transition-all duration-200"
-                    style={{
-                      transform: isSelected ? "scale(1.4)" : "scale(1)",
-                      filter: isSelected
-                        ? "drop-shadow(0 0 8px rgba(255,209,102,0.8))"
-                        : "drop-shadow(1px 1px 2px rgba(0,0,0,0.5))",
-                    }}
-                  >
-                    <span className="text-xl block">{p.emoji}</span>
-                  </div>
-                </button>
-              );
-            })}
           </div>
         </div>
 
-        {/* ── Selected pin detail ── */}
-        <div
-          className="rounded-2xl p-4 flex items-center gap-3 transition-all animate-fade-up"
-          style={{
-            background: "linear-gradient(135deg, var(--plum) 0%, var(--plum-xl) 100%)",
-            border: "2px solid var(--plum-lt)",
-            boxShadow: "3px 3px 0 var(--cocoa)",
-          }}
-        >
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
-            style={{ background: "rgba(255,209,102,0.1)", border: "1.5px solid rgba(255,209,102,0.2)" }}
-          >
-            {pin.emoji}
-          </div>
-          <div className="flex-1">
-            <div className="text-sm font-bold text-white">{pin.label}</div>
-            <div className="font-pixel text-[8px] text-[var(--mint)] mt-0.5">{pin.time}</div>
-          </div>
-          <div className="font-pixel text-[7px] text-white/30">STOP {mapPins.findIndex((p) => p.id === selected) + 1}</div>
-        </div>
-
-        {/* ── All stops list ── */}
-        <div className="glass-card p-4">
-          <div className="font-pixel text-[7px] text-[var(--cocoa-lt)] mb-3">ALL STOPS TODAY</div>
-          <div className="space-y-1">
-            {mapPins.map((p, i) => (
-              <button
-                key={p.id}
-                onClick={() => setSelected(p.id)}
-                className="w-full flex items-center gap-3 p-2.5 rounded-xl transition-all text-left"
-                style={{
-                  background: selected === p.id ? "var(--cream2)" : "transparent",
-                  border: `1.5px solid ${selected === p.id ? "var(--cocoa)" : "transparent"}`,
-                }}
-              >
-                <span
-                  className="font-pixel text-[7px] text-[var(--cocoa-lt)] w-5 text-right"
-                  style={{ flexShrink: 0 }}
-                >
-                  {i + 1}
-                </span>
-                <span className="text-base">{p.emoji}</span>
-                <span className="text-[12px] font-bold text-[var(--cocoa)] flex-1">{p.label}</span>
-                <span className="font-pixel text-[8px] text-[var(--cocoa-lt)]">{p.time}</span>
-              </button>
-            ))}
-          </div>
+        {/* ── Stats ── */}
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: "DISTANCE", value: `${distance}m`, color: "var(--mint-dk)" },
+            { label: "STOPS", value: `${TRAIL_STOPS.length}`, color: "var(--yellow)" },
+            { label: "TIME OUT", value: "2.4h", color: "var(--pink)" },
+          ].map((stat) => (
+            <div
+              key={stat.label}
+              className="text-center py-3 rounded-xl"
+              style={{ background: "var(--cream2)" }}
+            >
+              <div className="text-[16px] font-bold" style={{ color: stat.color }}>{stat.value}</div>
+              <div className="font-pixel text-[6px] text-[var(--cocoa-lt)] mt-0.5">{stat.label}</div>
+            </div>
+          ))}
         </div>
       </div>
     </>

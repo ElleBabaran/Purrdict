@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import TopBar from "@/components/nav/TopBar";
 import CatCardList from "@/components/cards/CatCardList";
 import { useAuth } from "@/lib/AuthContext";
@@ -11,7 +12,7 @@ import { useAuth } from "@/lib/AuthContext";
 // Tattersall et al. 2021 — Self-Organising Maps (>95% Kappa)
 const DETECTED_BEHAVIORS = [
   { id: "sleeping", emoji: "😴", label: "Sleeping", confidence: 0.94, color: "#5B8DEF", desc: "Low ODBA (<0.05g), minimal axis variation. Cat in loaf or lateral recumbent position. Sleep quality assessment via Plus Cycle method.", ref: "miyazaki2020" },
-  { id: "grooming", emoji: "✨", label: "Grooming", confidence: 0.89, color: "#4FAE94", desc: "Rhythmic Y-axis pattern (0.8-1.2 Hz). Characteristic head-to-body movement detected by collar IMU. Duration logged for health baseline.", ref: "ikurior2023" },
+  { id: "grooming", emoji: "✨", label: "Grooming", confidence: 0.89, color: "#4FAE94", desc: "Rhythmic Y-axis pattern (0.8-1.2 Hz). Characteristic head-to-body movement detected by leash IMU. Duration logged for health baseline.", ref: "ikurior2023" },
   { id: "eating", emoji: "🍽️", label: "Eating", confidence: 0.91, color: "#FFD166", desc: "Repeated downward head motion (Z-axis dips at 2-3Hz). Gyroscope confirms feeding posture angle. Meal duration tracked for pattern analysis.", ref: "mealin2024" },
   { id: "playing", emoji: "🎯", label: "Playing", confidence: 0.85, color: "#FF8FA3", desc: "High ODBA bursts (>0.8g) with erratic directional changes. Pounce signatures: rapid crouch → explosive vertical + horizontal acceleration.", ref: "tattersall2021" },
   { id: "walking", emoji: "🚶", label: "Walking", confidence: 0.92, color: "#F5A623", desc: "Periodic gait pattern (1.5-2.5 Hz) on all three axes. Moderate ODBA (0.1-0.4g). Step count via zero-crossing algorithm.", ref: "ikurior2023" },
@@ -22,31 +23,34 @@ const DETECTED_BEHAVIORS = [
   { id: "jumping", emoji: "🦘", label: "Jumping", confidence: 0.96, color: "#FFD166", desc: "Explosive vertical acceleration spike (>2g peak on Z-axis) followed by brief freefall signature. Jump count validated against Plus Cycle monitor.", ref: "miyazaki2020" },
 ];
 
-// Emotion assessment — Nicholson & O'Carroll 2021 (5 primary emotions)
-// Pain detection — Evangelista et al. 2019 Feline Grimace Scale (FGS)
-// Circadian context — Piccione et al. 2013 (crepuscular patterns)
+// Emotion assessment — inferred from motion patterns (MPU6050) + activity context
+// Based on Nicholson & O'Carroll 2021 framework adapted for accelerometer data
+// Instead of facial/visual cues, we use behavioral correlates detectable by IMU
 const EMOTION_STATE = {
   primary: "Contentment",
   emoji: "😌",
   confidence: 0.82,
   indicators: [
-    { label: "Body posture", value: "Relaxed, loaf position", source: "nicholson2021" },
-    { label: "Tail", value: "Tucked or loosely wrapped", source: "nicholson2021" },
-    { label: "Ears", value: "Forward, neutral position", source: "nicholson2021" },
-    { label: "Eyes", value: "Slow blinking (affiliation signal)", source: "nicholson2021" },
-    { label: "Vocalization", value: "Soft purring (25-50 Hz)", source: "kumpulainen2024" },
-    { label: "Grimace Scale", value: "0/10 — No pain indicators", source: "evangelista2019_fgs" },
+    { label: "Body movement", value: "Minimal — resting pattern (ODBA <0.05g)", source: "MPU6050" },
+    { label: "Posture angle", value: "Recumbent / loaf (gyro pitch <20°)", source: "MPU6050" },
+    { label: "Activity level", value: "Low (12% of daily avg)", source: "MPU6050" },
+    { label: "Location stability", value: "Stationary for 14 min", source: "GPS" },
+    { label: "Proximity sensor", value: "Near owner (INP triggered)", source: "INP" },
+    { label: "Context", value: "Post-meal rest — typical contentment pattern", source: "Circadian" },
   ],
   ref: "nicholson2021",
 };
 
-// Feline Grimace Scale action units (Evangelista 2019)
-const FGS_UNITS = [
-  { unit: "Ear position", status: "Normal (forward)", score: 0 },
-  { unit: "Orbital tightening", status: "Absent", score: 0 },
-  { unit: "Muzzle tension", status: "Relaxed", score: 0 },
-  { unit: "Whisker position", status: "Loose, lateral", score: 0 },
-  { unit: "Head position", status: "Above shoulder line", score: 0 },
+// Behavior-based wellness check (replaces Feline Grimace Scale)
+// Since we can't do facial analysis without a face-mounted camera,
+// we use motion anomaly detection as a proxy for discomfort/pain
+// Evangelista 2023 pain behavior ethogram (non-visual behavioral markers)
+const WELLNESS_UNITS = [
+  { unit: "Movement fluidity", status: "Normal gait pattern", score: 0, sensor: "MPU6050" },
+  { unit: "Activity duration", status: "Within 14-day baseline", score: 0, sensor: "MPU6050" },
+  { unit: "Posture changes", status: "Regular transitions", score: 0, sensor: "MPU6050 Gyro" },
+  { unit: "Rest disruption", status: "No abnormal waking", score: 0, sensor: "MPU6050" },
+  { unit: "Feeding behavior", status: "Normal duration (3m 20s)", score: 0, sensor: "MPU6050 + INP" },
 ];
 
 // Circadian context (Piccione 2013)
@@ -72,7 +76,7 @@ export default function DashboardPage() {
   const [currentBehavior, setCurrentBehavior] = useState(DETECTED_BEHAVIORS[1]); // grooming
   const [isLive, setIsLive] = useState(true);
 
-  // Simulate live observations coming in from the collar
+  // Simulate live observations coming in from the leash
   useEffect(() => {
     // Initial batch
     const initial: Observation[] = [
@@ -107,11 +111,29 @@ export default function DashboardPage() {
 
   return (
     <>
-      <TopBar title="▸ COLLAR OBSERVATIONS" />
+      <TopBar title="▸ LEASH OBSERVATIONS" />
 
       <div className="px-5 py-6 space-y-5">
         {/* ── Cat Cards ── */}
         <CatCardList />
+
+        {/* ── Health Quick Link ── */}
+        <Link
+          href="/dashboard/health"
+          className="glass-card p-4 flex items-center gap-4 group hover:scale-[1.01] transition-transform"
+        >
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
+            style={{ background: "rgba(255,143,163,0.12)", border: "2px solid rgba(255,143,163,0.3)" }}
+          >
+            ❤️
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[15px] font-bold text-[var(--cocoa)]">Health Dashboard</div>
+            <div className="text-[11px] text-[var(--cocoa-lt)]">Wellness score, vitals &amp; activity metrics</div>
+          </div>
+          <span className="text-[var(--cocoa-lt)] text-lg group-hover:translate-x-0.5 transition-transform">›</span>
+        </Link>
 
         {/* ── Live Detection Hero ── */}
         <div
@@ -126,7 +148,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: "1.5px solid rgba(255,255,255,0.06)" }}>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-[var(--mint)] animate-blink" />
-              <span className="font-pixel text-[9px] text-[var(--mint)]">ESP32 COLLAR — LIVE DETECTION</span>
+              <span className="font-pixel text-[9px] text-[var(--mint)]">ESP32 LEASH — LIVE DETECTION</span>
             </div>
             <button
               onClick={() => setIsLive(!isLive)}
@@ -197,34 +219,43 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Observable indicators */}
+          {/* Observable indicators from sensors */}
           <div className="space-y-2">
             {EMOTION_STATE.indicators.map((ind) => (
               <div key={ind.label} className="flex items-center justify-between py-2 px-3 rounded-lg" style={{ background: "var(--cream)" }}>
-                <span className="text-[12px] text-[var(--cocoa-lt)]">{ind.label}</span>
-                <span className="text-[12px] font-bold text-[var(--cocoa)]">{ind.value}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] text-[var(--cocoa-lt)]">{ind.label}</span>
+                  <span className="font-pixel text-[6px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(79,174,148,0.1)", color: "var(--mint-dk)" }}>{ind.source}</span>
+                </div>
+                <span className="text-[11px] font-bold text-[var(--cocoa)]">{ind.value}</span>
               </div>
             ))}
           </div>
+          <div className="mt-3 text-[10px] text-[var(--cocoa-lt)]">
+            📚 Emotion inferred from motion-behavior correlates. Nicholson 2021 framework adapted for IMU-only detection via activity pattern matching.
+          </div>
         </div>
 
-        {/* ── Feline Grimace Scale (Pain Detection) ── */}
+        {/* ── Behavior-Based Wellness Check (Pain Detection) ── */}
         <div className="glass-card p-5">
           <div className="flex items-center justify-between mb-4">
-            <div className="font-pixel text-[9px] text-[var(--cocoa-lt)]">FELINE GRIMACE SCALE</div>
-            <div className="font-pixel text-[7px] text-[var(--mint-dk)]">Evangelista et al. 2019</div>
+            <div className="font-pixel text-[9px] text-[var(--cocoa-lt)]">WELLNESS CHECK</div>
+            <div className="font-pixel text-[7px] text-[var(--mint-dk)]">Evangelista et al. 2023</div>
           </div>
           <div className="flex items-center gap-3 mb-4">
             <div className="text-3xl">😺</div>
             <div>
-              <div className="text-lg font-bold text-[var(--mint-dk)]">Score: 0/10 — No Pain</div>
-              <div className="text-[11px] text-[var(--cocoa-lt)]">All 5 action units within normal range</div>
+              <div className="text-lg font-bold text-[var(--mint-dk)]">Score: 0/10 — No Anomalies</div>
+              <div className="text-[11px] text-[var(--cocoa-lt)]">All motion patterns within 14-day baseline</div>
             </div>
           </div>
           <div className="space-y-1.5">
-            {FGS_UNITS.map((u) => (
+            {WELLNESS_UNITS.map((u) => (
               <div key={u.unit} className="flex items-center justify-between py-1.5 px-3 rounded-lg" style={{ background: "var(--cream)" }}>
-                <span className="text-[11px] text-[var(--cocoa-lt)]">{u.unit}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-[var(--cocoa-lt)]">{u.unit}</span>
+                  <span className="font-pixel text-[5px] px-1 py-0.5 rounded" style={{ background: "rgba(79,174,148,0.1)", color: "var(--mint-dk)" }}>{u.sensor}</span>
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-medium text-[var(--cocoa)]">{u.status}</span>
                   <span className="w-5 h-5 rounded-full flex items-center justify-center text-[9px]" style={{ background: "rgba(79,174,148,0.15)", color: "var(--mint-dk)" }}>✓</span>
@@ -233,7 +264,7 @@ export default function DashboardPage() {
             ))}
           </div>
           <div className="mt-3 text-[10px] text-[var(--cocoa-lt)]">
-            📚 FGS validated with 0.91 sensitivity, 0.89 specificity for acute pain detection via camera-based facial analysis.
+            📚 Pain/discomfort detected via motion anomalies — reduced activity, abnormal gait, disrupted sleep. Based on Evangelista 2023 pain behavior ethogram adapted for accelerometer detection.
           </div>
         </div>
 
@@ -317,7 +348,7 @@ export default function DashboardPage() {
           <p><strong>Emotion Detection:</strong> 5 primary feline emotions via body language ethogram — posture, tail, ears, eyes, vocalizations (Nicholson & O&apos;Carroll 2021; Kumpulainen 2024).</p>
           <p><strong>Pain Assessment:</strong> Feline Grimace Scale — 5 facial action units, 91% sensitivity (Evangelista 2019). Pain behavior ethogram via expert consensus (Evangelista 2023).</p>
           <p><strong>Activity & Sleep:</strong> ODBA metric + jump/step counting. Sleep quality discrimination validated (Miyazaki 2020). Circadian patterns — crepuscular peaks at dawn/dusk (Piccione 2013).</p>
-          <p><strong>Hardware:</strong> Collar-mounted IMU with embedded ML (Delgado 2023; Ladha 2013). UWB radar for non-contact vitals (Zhang 2020). ECG vest for cardiac monitoring (Nunes 2024).</p>
+          <p><strong>Hardware:</strong> Leash-mounted IMU with embedded ML (Delgado 2023; Ladha 2013). UWB radar for non-contact vitals (Zhang 2020). ECG vest for cardiac monitoring (Nunes 2024).</p>
           <p><strong>Environment:</strong> Light-behavior-cortisol relationship quantified (De Saix 2025). Enrichment impact on stress behaviors (Stanton 2015). Spatial tracking via fiducial markers (Chambers 2022).</p>
         </div>
       </div>

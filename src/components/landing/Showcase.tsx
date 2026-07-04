@@ -1,5 +1,4 @@
 "use client";
-import { useState, useEffect } from "react";
 import PixelCat from "@/components/PixelCat";
 
 export default function Showcase() {
@@ -16,7 +15,7 @@ export default function Showcase() {
             <span className="text-[var(--mint-dk)]">you always miss</span>
           </h2>
           <p className="text-base text-[var(--cocoa-lt)] max-w-md mb-10 font-medium">
-            Live ESP32 collar cam plus a full map of her favorite haunts — all
+            Live ESP32 leash cam plus a full map of her favorite haunts — all
             streamed straight to your phone.
           </p>
 
@@ -33,7 +32,7 @@ export default function Showcase() {
               className="flex items-center justify-between px-4 py-2.5"
               style={{ background: "var(--plum-lt)", borderBottom: "2px solid rgba(255,255,255,0.06)" }}
             >
-              <span className="font-pixel text-[8px] text-[var(--yellow)]">📷 ESP32 COLLAR CAM</span>
+              <span className="font-pixel text-[8px] text-[var(--yellow)]">📷 ESP32 LEASH CAM</span>
               <span className="flex items-center gap-1.5 font-pixel text-[7px] text-[#FF5C5C]">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#FF5C5C] animate-blink" />
                 REC
@@ -225,7 +224,7 @@ export default function Showcase() {
                   </div>
                   <div className="px-2.5 py-2">
                     <div className="text-[11px] font-bold text-[var(--cocoa)] leading-tight">
-                      First day with the collar
+                      First day with the leash
                     </div>
                     <div className="font-pixel text-[5px] text-[var(--cocoa-lt)] mt-1">Jun 22 · milestone ✨</div>
                   </div>
@@ -340,43 +339,11 @@ export default function Showcase() {
   );
 }
 
-const CAT_THOUGHTS = ["🐟", "💤", "🧶", "🐦", "🍗", "❤️", "🌙", "🎯", "😼", "🐾"];
-
 function TrailCat() {
-  const [thought, setThought] = useState(CAT_THOUGHTS[0]);
-  const [showThought, setShowThought] = useState(true);
-
-  // Cycle thoughts
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setShowThought(false);
-      setTimeout(() => {
-        setThought(CAT_THOUGHTS[Math.floor(Math.random() * CAT_THOUGHTS.length)]);
-        setShowThought(true);
-      }, 400);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
-
   return (
-    <div className="absolute bottom-8 left-[25%] z-20">
-      {/* White thought bubble with emoji */}
-      <div
-        className="absolute -top-11 left-1/2 -translate-x-1/2 transition-all duration-300"
-        style={{ opacity: showThought ? 1 : 0, transform: `translateX(-50%) ${showThought ? "scale(1)" : "scale(0.7)"}` }}
-      >
-        <div
-          className="w-9 h-9 rounded-full flex items-center justify-center text-base shadow-lg"
-          style={{ background: "#FFFFFF" }}
-        >
-          {thought}
-        </div>
-        {/* Thought bubble dots */}
-        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-white shadow-sm" />
-        <div className="absolute -bottom-3 left-[45%] w-1.5 h-1.5 rounded-full bg-white shadow-sm" />
-      </div>
-      {/* Cat */}
-      <PixelCat size={40} variant="orange" bounce />
+    <div className="absolute bottom-8 z-20 animate-trail-walk">
+      {/* Cat walking across the trail */}
+      <PixelCat size={40} variant="orange" walking />
     </div>
   );
 }

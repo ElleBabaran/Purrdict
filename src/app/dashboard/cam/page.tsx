@@ -1,109 +1,164 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import TopBar from "@/components/nav/TopBar";
-import CatRoom from "@/components/CatRoom";
 import { useAuth } from "@/lib/AuthContext";
 import { camEvents } from "@/lib/mockData";
-
-type CatActivity = "sleeping" | "eating" | "playing" | "walking" | "sitting";
-
-const ACTIVITIES: { id: CatActivity; label: string; emoji: string; duration: number }[] = [
-  { id: "sitting", label: "Just vibing", emoji: "😌", duration: 8000 },
-  { id: "walking", label: "Exploring", emoji: "🚶", duration: 6000 },
-  { id: "eating", label: "Eating", emoji: "🍽️", duration: 5000 },
-  { id: "playing", label: "Playing", emoji: "🎯", duration: 7000 },
-  { id: "sleeping", label: "Napping", emoji: "💤", duration: 12000 },
-  { id: "walking", label: "Strolling", emoji: "🚶", duration: 5000 },
-  { id: "sitting", label: "Watching", emoji: "👀", duration: 6000 },
-];
 
 export default function CamPage() {
   const { user } = useAuth();
   const catName = user?.cats[0]?.name || "Your Cat";
-  const [activityIndex, setActivityIndex] = useState(0);
   const [currentTime, setCurrentTime] = useState("");
-  const [isLive, setIsLive] = useState(true);
+  const [connecting, setConnecting] = useState(true);
+  const [connected, setConnected] = useState(false);
+  const [dots, setDots] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
 
-  const currentActivity = ACTIVITIES[activityIndex];
-
-  // Cycle through activities
-  useEffect(() => {
-    if (!isLive) return;
-    const timeout = setTimeout(() => {
-      setActivityIndex((i) => (i + 1) % ACTIVITIES.length);
-    }, currentActivity.duration);
-    return () => clearTimeout(timeout);
-  }, [activityIndex, isLive, currentActivity.duration]);
-
-  // Clock
+  // Clock — updates every 30s
   useEffect(() => {
     const update = () => {
       const now = new Date();
-      setCurrentTime(now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }));
+      setCurrentTime(
+        now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true })
+      );
     };
     update();
-    const interval = setInterval(update, 30000);
+    const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Determine time of day
-  const hour = new Date().getHours();
-  const timeOfDay = (hour >= 6 && hour < 18) ? "day" : "night";
+  // Fake connecting sequence
+  useEffect(() => {
+    const dotInterval = setInterval(() => {
+      setDots((d) => (d.length >= 3 ? "" : d + "."));
+    }, 500);
+
+    const connectTimeout = setTimeout(() => {
+      setConnecting(false);
+      setConnected(true);
+      clearInterval(dotInterval);
+    }, 2800);
+
+    return () => {
+      clearInterval(dotInterval);
+      clearTimeout(connectTimeout);
+    };
+  }, []);
+
+  // Auto-play video once "connected"
+  useEffect(() => {
+    if (connected && videoRef.current) {
+      videoRef.current.play().catch(() => {});
+    }
+  }, [connected]);
 
   return (
     <>
-      <TopBar title="▸ CAT'S WORLD" />
+      <TopBar title="▸ CAT CAM" />
       <div className="px-4 py-5 space-y-4">
 
-        {/* ── Virtual Pet Room ── */}
+        {/* ── Video Feed ── */}
         <div
-          className="rounded-2xl overflow-hidden"
+          className="rounded-2xl overflow-hidden relative"
           style={{
             border: "3px solid var(--cocoa)",
             boxShadow: "5px 5px 0 var(--cocoa)",
+            aspectRatio: "16/10",
+            background: "#0E0B14",
           }}
         >
-          <CatRoom
-            activity={currentActivity.id}
-            catName={catName}
-            timeOfDay={timeOfDay}
+          {/* Scan-line overlay for cam effect */}
+          <div
+            className="absolute inset-0 z-20 pointer-events-none"
+            style={{
+              background: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px)",
+              mixBlendMode: "multiply",
+            }}
           />
-        </div>
 
-        {/* ── Activity Status Card ── */}
-        <div className="glass-card p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xl">{currentActivity.emoji}</span>
-              <div>
-                <div className="text-[14px] font-bold text-[var(--cocoa)]">{catName} is {currentActivity.label.toLowerCase()}</div>
-                <div className="font-pixel text-[7px] text-[var(--cocoa-lt)] mt-0.5">{currentTime} · ESP32 Collar Active</div>
+          {/* Slight vignette */}
+          <div
+            className="absolute inset-0 z-20 pointer-events-none"
+            style={{
+              background: "radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.4) 100%)",
+            }}
+          />
+
+          {/* Connecting state */}
+          {connecting && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
+              <div className="w-10 h-10 rounded-full border-2 border-[var(--mint)] border-t-transparent animate-spin" />
+              <div className="font-pixel text-[9px] text-[var(--mint)]">
+                CONNECTING TO ESP32-CAM{dots}
+              </div>
+              <div className="font-pixel text-[6px] text-white/30 mt-1">
+                192.168.1.42:81
               </div>
             </div>
-            <button
-              onClick={() => setIsLive(!isLive)}
-              className="px-3 py-1.5 rounded-full font-pixel text-[7px] transition-all"
+          )}
+
+          {/* Video — pre-loaded from public folder */}
+          <video
+            ref={videoRef}
+            src="/catfeed.mp4"
+            className="w-full h-full object-cover"
+            style={{
+              opacity: connected ? 1 : 0,
+              transition: "opacity 0.8s ease-in",
+            }}
+            autoPlay
+            loop
+            muted
+            playsInline
+          />
+
+          {/* HUD overlay */}
+          {connected && (
+            <>
+              <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 z-30">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: "rgba(0,0,0,0.6)", border: "1px solid rgba(127,216,190,0.3)" }}>
+                  <span className="w-2 h-2 rounded-full bg-[#FF4444] animate-blink" />
+                  <span className="font-pixel text-[7px] text-[#FF6B6B]">● REC</span>
+                </div>
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                  <span className="font-pixel text-[7px] text-white/70">{catName}</span>
+                  <span className="font-pixel text-[7px] text-[#FFD166]">🐱</span>
+                </div>
+              </div>
+              <div className="absolute bottom-0 left-0 right-0 px-4 py-3 z-30 flex items-center justify-between" style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.7))" }}>
+                <span className="font-pixel text-[7px] text-white/80">{currentTime}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-pixel text-[6px] text-white/40">ESP32-CAM</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#7FD8BE]" />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ── Connection Info ── */}
+        <div className="glass-card p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">📡</span>
+              <div>
+                <div className="text-[14px] font-bold text-[var(--cocoa)]">
+                  {connected ? "Live Feed Active" : "Connecting..."}
+                </div>
+                <div className="font-pixel text-[7px] text-[var(--cocoa-lt)] mt-0.5">
+                  {currentTime} · ESP32-CAM · 192.168.1.42
+                </div>
+              </div>
+            </div>
+            <div
+              className="px-3 py-1.5 rounded-full font-pixel text-[7px]"
               style={{
-                background: isLive ? "rgba(79,174,148,0.12)" : "rgba(255,107,107,0.12)",
-                border: `1.5px solid ${isLive ? "rgba(79,174,148,0.4)" : "rgba(255,107,107,0.4)"}`,
-                color: isLive ? "var(--mint-dk)" : "var(--coral)",
+                background: connected ? "rgba(79,174,148,0.12)" : "rgba(255,209,102,0.12)",
+                border: `1.5px solid ${connected ? "rgba(79,174,148,0.4)" : "rgba(255,209,102,0.4)"}`,
+                color: connected ? "var(--mint-dk)" : "var(--yellow)",
               }}
             >
-              {isLive ? "● LIVE" : "◯ PAUSED"}
-            </button>
-          </div>
-
-          {/* Activity bar */}
-          <div className="flex gap-1.5">
-            {ACTIVITIES.map((a, i) => (
-              <div
-                key={`${a.id}-${i}`}
-                className="flex-1 h-1.5 rounded-full transition-all"
-                style={{
-                  background: i === activityIndex ? "var(--pink)" : i < activityIndex ? "var(--mint)" : "var(--cream2)",
-                }}
-              />
-            ))}
+              {connected ? "● CONNECTED" : "○ PAIRING"}
+            </div>
           </div>
         </div>
 
@@ -113,7 +168,7 @@ export default function CamPage() {
             { emoji: "📸", label: "Snap" },
             { emoji: "🎥", label: "Record" },
             { emoji: "🔔", label: "Alert" },
-            { emoji: "🍽️", label: "Feed" },
+            { emoji: "🌙", label: "Night" },
           ].map((action) => (
             <button
               key={action.label}

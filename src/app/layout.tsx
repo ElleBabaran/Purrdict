@@ -4,7 +4,7 @@ import { AuthProvider } from "@/lib/AuthContext";
 
 export const metadata: Metadata = {
   title: "Purrdict — Research-Backed Cat Behavior Intelligence",
-  description: "ESP32 smart collar that classifies cat behavior using methods from 17 peer-reviewed veterinary research papers.",
+  description: "ESP32 smart leash that classifies cat behavior using methods from 17 peer-reviewed veterinary research papers.",
   manifest: "/manifest.json",
 };
 

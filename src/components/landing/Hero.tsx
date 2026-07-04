@@ -1,4 +1,5 @@
 "use client";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import PixelCat from "@/components/PixelCat";
 
@@ -51,13 +52,13 @@ export default function Hero() {
             today?
           </h1>
           <p className="text-base text-[var(--cocoa-lt)] leading-relaxed max-w-md mb-8 font-medium">
-            Purrdict gives your cat an ESP32 smart collar — accelerometer, GPS, and
+            Purrdict gives your cat an ESP32 smart leash — accelerometer, GPS, and
             camera — then uses methods from 17 peer-reviewed veterinary papers to
             classify behavior, detect emotions, and track location.
           </p>
           <div className="flex gap-3.5 flex-wrap">
             <Link
-              href="/dashboard"
+              href="/signup"
               className="pixel-press font-pixel text-[11px] px-6 py-4 rounded-xl text-white inline-flex items-center gap-2 transition-all hover:scale-[1.02]"
               style={{
                 background: "linear-gradient(135deg, var(--pink) 0%, var(--pink-dk) 100%)",
@@ -65,19 +66,19 @@ export default function Hero() {
                 boxShadow: "4px 4px 0 var(--cocoa)",
               }}
             >
-              🐱 START SPYING
+              🐱 GET STARTED
             </Link>
-            <a
-              href="#levels"
-              className="pixel-press font-pixel text-[11px] px-6 py-4 rounded-xl text-[var(--cocoa)] inline-flex items-center gap-2 transition-all hover:scale-[1.02]"
+            <Link
+              href="/demo"
+              className="pixel-press font-pixel text-[11px] px-6 py-4 rounded-xl text-white inline-flex items-center gap-2 transition-all hover:scale-[1.02]"
               style={{
-                background: "white",
+                background: "linear-gradient(135deg, var(--mint) 0%, var(--mint-dk) 100%)",
                 border: "2.5px solid var(--cocoa)",
                 boxShadow: "4px 4px 0 var(--cocoa)",
               }}
             >
-              ▶ SEE HOW
-            </a>
+              🎮 TRY DEMO
+            </Link>
           </div>
         </div>
 
@@ -178,10 +179,8 @@ export default function Hero() {
             }}
           />
 
-          {/* walking cat */}
-          <div className="absolute bottom-6 animate-walk z-[15]">
-            <PixelCat size={52} walking />
-          </div>
+          {/* walking cat with thoughts */}
+          <HeroWalkingCat />
 
           {/* bottom status bar */}
           <div
@@ -200,5 +199,68 @@ export default function Hero() {
         </div>
       </div>
     </section>
+  );
+}
+
+const CAT_THOUGHTS = [
+  "where snack...",
+  "must zoom now",
+  "suspicious box...",
+  "that bird again",
+  "why hooman stare",
+  "nap time soon",
+  "i am speed",
+  "touch the fish",
+  "plotting escape",
+  "is that food?",
+];
+
+function HeroWalkingCat() {
+  const [thought, setThought] = useState(CAT_THOUGHTS[0]);
+  const [showThought, setShowThought] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setShowThought(false);
+      setTimeout(() => {
+        setThought(CAT_THOUGHTS[Math.floor(Math.random() * CAT_THOUGHTS.length)]);
+        setShowThought(true);
+      }, 400);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="absolute bottom-6 animate-walk z-[15]">
+      {/* Text thought bubble */}
+      <div
+        className="absolute -top-10 left-1/2 -translate-x-1/2 whitespace-nowrap transition-all duration-300 pointer-events-none"
+        style={{
+          opacity: showThought ? 1 : 0,
+          transform: `translateX(-50%) ${showThought ? "translateY(0)" : "translateY(4px)"}`,
+        }}
+      >
+        <div
+          className="relative px-2.5 py-1.5 rounded-lg font-pixel text-[7px] text-[var(--cocoa)] shadow-md"
+          style={{
+            background: "#FFFFFF",
+            border: "1.5px solid rgba(74,59,50,0.2)",
+          }}
+        >
+          {thought}
+          {/* speech bubble tail */}
+          <div
+            className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rotate-45"
+            style={{
+              background: "#FFFFFF",
+              borderRight: "1.5px solid rgba(74,59,50,0.2)",
+              borderBottom: "1.5px solid rgba(74,59,50,0.2)",
+            }}
+          />
+        </div>
+      </div>
+      {/* Cat */}
+      <PixelCat size={52} walking />
+    </div>
   );
 }

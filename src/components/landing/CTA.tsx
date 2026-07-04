@@ -26,22 +26,22 @@ export default function CTA() {
             what she&apos;s really up to?
           </h2>
           <p className="text-base text-[#C9BFE0] mb-9 font-medium">
-            Strap on the collar — 17 research papers are ready to decode her behavior.
+            Strap on the leash — 17 research papers are ready to decode her behavior.
           </p>
           <div className="flex gap-3.5 justify-center flex-wrap">
             <Link
-              href="/dashboard"
+              href="/signup"
               className="pixel-press font-pixel text-[11px] px-6 py-4 pixel-border rounded bg-[var(--pink)] text-white inline-flex items-center gap-2"
             >
               🐱 GET STARTED
             </Link>
-            <a
-              href="#levels"
+            <Link
+              href="/demo"
               className="pixel-press font-pixel text-[11px] px-6 py-4 rounded text-white inline-flex items-center gap-2 border-[3px] border-white"
               style={{ boxShadow: "4px 4px 0 white" }}
             >
-              ▶ REPLAY INTRO
-            </a>
+              🎮 TRY DEMO
+            </Link>
           </div>
         </div>
       </section>

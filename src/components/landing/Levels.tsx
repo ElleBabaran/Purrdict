@@ -3,14 +3,14 @@ const levels = [
   {
     icon: "📡",
     tag: "LEVEL 01 — COLLECT",
-    title: "Tiny collar, big sensors",
-    body: "An ESP32 collar with a triaxial accelerometer, gyroscope, GPS module, and camera — sampling movement at 50Hz while your cat naps, zooms, or stalks dust bunnies.",
+    title: "Tiny leash, big sensors",
+    body: "An ESP32 leash with a triaxial accelerometer, gyroscope, GPS module, and camera — sampling movement at 50Hz while your cat naps, zooms, or stalks dust bunnies.",
   },
   {
     icon: "📚",
     tag: "LEVEL 02 — CLASSIFY",
     title: "Research-backed detection",
-    body: "Random Forest and CNN-LSTM models classify 10+ behaviors from sensor data — validated by Ikurior et al. 2023 (>86% accuracy) and Uddin et al. 2024 on collar-mounted hardware.",
+    body: "Random Forest and CNN-LSTM models classify 10+ behaviors from sensor data — validated by Ikurior et al. 2023 (>86% accuracy) and Uddin et al. 2024 on leash-mounted hardware.",
   },
   {
     icon: "😺",

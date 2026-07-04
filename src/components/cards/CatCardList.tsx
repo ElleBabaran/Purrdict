@@ -77,7 +77,7 @@ export default function CatCardList() {
         <div className="text-3xl mb-2">🐱</div>
         <div className="text-sm font-bold text-[var(--cocoa)] mb-1">No cats yet</div>
         <p className="text-[11px] text-[var(--cocoa-lt)] mb-3">
-          Pair an ESP32 collar to create your first cat card.
+          Pair an ESP32 leash to create your first cat card.
         </p>
         <Link
           href="/setup"
@@ -170,7 +170,7 @@ export default function CatCardList() {
             {/* PIN info */}
             <div className="mt-3 flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: "var(--cream)", border: "1px dashed var(--cream2)" }}>
               <div>
-                <span className="font-pixel text-[5.5px] text-[var(--cocoa-lt)]">COLLAR PIN: </span>
+                <span className="font-pixel text-[5.5px] text-[var(--cocoa-lt)]">LEASH PIN: </span>
                 <span className="font-mono text-[11px] font-bold text-[var(--cocoa)] tracking-wider">{cat.esp32Pin}</span>
               </div>
               <div className="font-pixel text-[5.5px] text-[var(--cocoa-lt)]">

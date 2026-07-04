@@ -172,6 +172,9 @@ body{
 @keyframes walk-across { 0% { left: -60px; } 100% { left: 110%; } }
 .animate-walk { animation: walk-across 9s linear infinite; }
 
+@keyframes trail-walk { 0% { left: -40px; } 100% { left: calc(100% + 40px); } }
+.animate-trail-walk { animation: trail-walk 12s linear infinite; }
+
 @keyframes cat-bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 .animate-cat-bounce { animation: cat-bounce 0.3s steps(2) infinite; }
 

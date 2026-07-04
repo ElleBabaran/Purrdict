@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Enable static export for Capacitor mobile builds
+  // Run with: NEXT_OUTPUT=export npm run build
+  ...(process.env.NEXT_OUTPUT === "export" ? { output: "export" } : {}),
+
   // Server mode (needed for API routes, Temporal, and Aikido Zen)
   images: { unoptimized: true },
 

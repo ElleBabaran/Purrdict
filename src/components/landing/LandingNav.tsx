@@ -31,6 +31,17 @@ export default function LandingNav() {
           LOG IN
         </Link>
         <Link
+          href="/demo"
+          className="pixel-press font-pixel text-[8px] px-4 py-2.5 rounded-xl text-white"
+          style={{
+            background: "linear-gradient(135deg, var(--mint) 0%, var(--mint-dk) 100%)",
+            border: "2px solid var(--cocoa)",
+            boxShadow: "3px 3px 0 var(--cocoa)",
+          }}
+        >
+          🎮 DEMO
+        </Link>
+        <Link
           href="/signup"
           className="pixel-press font-pixel text-[8px] px-4 py-2.5 rounded-xl text-white"
           style={{
