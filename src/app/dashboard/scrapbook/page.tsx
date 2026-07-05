@@ -381,8 +381,8 @@ function OpenBookView({ book, onBack }: { book: ScrapBook; onBack: () => void })
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      alert("File too large. Max 5MB.");
+    if (file.size > 50 * 1024 * 1024) {
+      alert("File too large. Max 50MB.");
       return;
     }
     const base64 = await fileToBase64(file);
@@ -545,14 +545,14 @@ function OpenBookView({ book, onBack }: { book: ScrapBook; onBack: () => void })
                       {newType === "photo" ? (
                         <img src={mediaPreview} alt="Preview" className="w-full h-40 object-cover rounded-xl" />
                       ) : (
-                        <video src={mediaPreview} className="w-full h-40 object-cover rounded-xl" controls />
+                        <video src={mediaPreview} className="w-full h-40 object-cover rounded-xl" controls playsInline preload="metadata" />
                       )}
                       <button onClick={() => { setMediaPreview(null); setMediaBase64(null); }} className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-white text-sm" style={{ background: "rgba(0,0,0,0.6)" }}>✕</button>
                     </div>
                   ) : (
                     <button onClick={() => fileRef.current?.click()} className="w-full py-8 rounded-xl flex flex-col items-center gap-2" style={{ background: "rgba(255,255,255,0.03)", border: "1.5px dashed rgba(255,255,255,0.15)" }}>
                       <span className="text-3xl opacity-50">{newType === "photo" ? "🖼️" : "🎞️"}</span>
-                      <span className="font-pixel text-[7px] text-white/40">TAP TO UPLOAD (max 5MB)</span>
+                      <span className="font-pixel text-[7px] text-white/40">TAP TO UPLOAD (max 50MB)</span>
                     </button>
                   )}
                   <input ref={fileRef} type="file" accept={newType === "photo" ? "image/*" : "video/*"} className="hidden" onChange={handleFileSelect} />
@@ -611,12 +611,18 @@ function PageEntry({ entry, onDelete, onOpen }: { entry: ScrapEntry; onDelete: (
             {entry.type === "photo" ? (
               <img src={entry.media_data} alt={entry.title} className="w-full h-full object-cover absolute inset-0" />
             ) : (
-              <video src={entry.media_data} className="w-full h-full object-cover absolute inset-0" />
+              <video
+                src={entry.media_data}
+                className="w-full h-full object-cover absolute inset-0"
+                preload="metadata"
+                muted
+                playsInline
+              />
             )}
             {entry.type === "video" && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/10">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.9)" }}>
-                  <span className="text-[var(--pink-dk)] text-xs ml-0.5">▶</span>
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.9)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
+                  <span className="text-[var(--pink-dk)] text-sm ml-0.5">▶</span>
                 </div>
               </div>
             )}
@@ -653,7 +659,14 @@ function EntryDetailModal({ entry, onClose }: { entry: ScrapEntry; onClose: () =
           <img src={entry.media_data} alt={entry.title} className="w-full max-h-[50vh] object-contain bg-black" />
         )}
         {entry.media_data && entry.type === "video" && (
-          <video src={entry.media_data} className="w-full max-h-[50vh]" controls autoPlay />
+          <video
+            src={entry.media_data}
+            className="w-full max-h-[50vh]"
+            controls
+            autoPlay
+            playsInline
+            preload="metadata"
+          />
         )}
 
         {/* Content */}
@@ -695,7 +708,7 @@ function EmptyPage({ side }: { side: "left" | "right" }) {
 const TUTORIAL_STEPS = [
   { emoji: "📚", title: "Welcome to Albums!", message: "Create multiple albums to organize your cat's cutest moments. Photos, videos, and notes — all saved to your account." },
   { emoji: "📖", title: "Create a Book", message: "Tap '+ NEW BOOK' to create an album. Pick a name, cover color, and pattern design." },
-  { emoji: "📷", title: "Add Photos & Videos", message: "Inside a book, tap '+ ADD' and upload real photos or videos (up to 5MB). They'll be saved so you never lose them!" },
+  { emoji: "📷", title: "Add Photos & Videos", message: "Inside a book, tap '+ ADD' and upload real photos or videos (up to 50MB). They'll be saved so you never lose them!" },
   { emoji: "👆", title: "Browse Pages", message: "Flip through your album with ◀ PREV and NEXT ▶. Each spread shows two memories side by side." },
 ];
 

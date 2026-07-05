@@ -70,42 +70,92 @@ interface Observation {
   ref: string;
 }
 
+// Helper: convert ISO date to "X min ago" format
+function getTimeAgo(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 30) return "Just now";
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} min ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ${diffMin % 60}m ago`;
+  return `${Math.floor(diffHr / 24)}d ago`;
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const [observations, setObservations] = useState<Observation[]>([]);
   const [currentBehavior, setCurrentBehavior] = useState(DETECTED_BEHAVIORS[1]); // grooming
   const [isLive, setIsLive] = useState(true);
 
-  // Simulate live observations coming in from the leash
+  // Fetch real sensor data from the ESP32 data API
+  // Falls back to simulated data if API is unavailable (demo mode)
   useEffect(() => {
-    // Initial batch
-    const initial: Observation[] = [
-      { id: "o1", behavior: DETECTED_BEHAVIORS[1].label, emoji: DETECTED_BEHAVIORS[1].emoji, confidence: DETECTED_BEHAVIORS[1].confidence, desc: DETECTED_BEHAVIORS[1].desc, time: "Just now", ref: DETECTED_BEHAVIORS[1].ref },
-      { id: "o2", behavior: DETECTED_BEHAVIORS[2].label, emoji: DETECTED_BEHAVIORS[2].emoji, confidence: DETECTED_BEHAVIORS[2].confidence, desc: DETECTED_BEHAVIORS[2].desc, time: "12 min ago", ref: DETECTED_BEHAVIORS[2].ref },
-      { id: "o3", behavior: DETECTED_BEHAVIORS[0].label, emoji: DETECTED_BEHAVIORS[0].emoji, confidence: DETECTED_BEHAVIORS[0].confidence, desc: DETECTED_BEHAVIORS[0].desc, time: "45 min ago", ref: DETECTED_BEHAVIORS[0].ref },
-      { id: "o4", behavior: DETECTED_BEHAVIORS[4].label, emoji: DETECTED_BEHAVIORS[4].emoji, confidence: DETECTED_BEHAVIORS[4].confidence, desc: DETECTED_BEHAVIORS[4].desc, time: "1h ago", ref: DETECTED_BEHAVIORS[4].ref },
-      { id: "o5", behavior: DETECTED_BEHAVIORS[5].label, emoji: DETECTED_BEHAVIORS[5].emoji, confidence: DETECTED_BEHAVIORS[5].confidence, desc: DETECTED_BEHAVIORS[5].desc, time: "1h 20m ago", ref: DETECTED_BEHAVIORS[5].ref },
-    ];
-    setObservations(initial);
+    let cancelled = false;
 
-    // Simulate new observation every 30s
+    async function fetchLiveData() {
+      try {
+        const catId = user?.cats[0]?.id || "";
+        const res = await fetch(`/api/esp32/data?catId=${catId}&limit=20`);
+        if (!res.ok) throw new Error("API unavailable");
+        const data = await res.json();
+
+        if (cancelled) return;
+
+        // If we got real data from the database
+        if (data.behaviors && data.behaviors.length > 0) {
+          const mapped: Observation[] = data.behaviors.map((b: { behavior: string; emoji: string; confidence: number; description: string; recorded_at: string; research_ref: string }, i: number) => {
+            const timeAgo = getTimeAgo(new Date(b.recorded_at));
+            return {
+              id: `db-${i}-${b.recorded_at}`,
+              behavior: b.behavior.charAt(0).toUpperCase() + b.behavior.slice(1).replace("_", " "),
+              emoji: b.emoji,
+              confidence: b.confidence,
+              desc: b.description,
+              time: timeAgo,
+              ref: b.research_ref || "ikurior2023",
+            };
+          });
+          setObservations(mapped);
+
+          // Set current behavior to the most recent
+          const latest = data.behaviors[0];
+          const match = DETECTED_BEHAVIORS.find(d => d.id === latest.behavior) || DETECTED_BEHAVIORS[0];
+          setCurrentBehavior({ ...match, confidence: latest.confidence });
+          return; // Real data loaded successfully
+        }
+      } catch {
+        // API unavailable — fall through to demo data
+      }
+
+      // Fallback: demo/simulated data
+      if (cancelled) return;
+      const initial: Observation[] = [
+        { id: "o1", behavior: DETECTED_BEHAVIORS[1].label, emoji: DETECTED_BEHAVIORS[1].emoji, confidence: DETECTED_BEHAVIORS[1].confidence, desc: DETECTED_BEHAVIORS[1].desc, time: "Just now", ref: DETECTED_BEHAVIORS[1].ref },
+        { id: "o2", behavior: DETECTED_BEHAVIORS[2].label, emoji: DETECTED_BEHAVIORS[2].emoji, confidence: DETECTED_BEHAVIORS[2].confidence, desc: DETECTED_BEHAVIORS[2].desc, time: "12 min ago", ref: DETECTED_BEHAVIORS[2].ref },
+        { id: "o3", behavior: DETECTED_BEHAVIORS[0].label, emoji: DETECTED_BEHAVIORS[0].emoji, confidence: DETECTED_BEHAVIORS[0].confidence, desc: DETECTED_BEHAVIORS[0].desc, time: "45 min ago", ref: DETECTED_BEHAVIORS[0].ref },
+        { id: "o4", behavior: DETECTED_BEHAVIORS[4].label, emoji: DETECTED_BEHAVIORS[4].emoji, confidence: DETECTED_BEHAVIORS[4].confidence, desc: DETECTED_BEHAVIORS[4].desc, time: "1h ago", ref: DETECTED_BEHAVIORS[4].ref },
+        { id: "o5", behavior: DETECTED_BEHAVIORS[5].label, emoji: DETECTED_BEHAVIORS[5].emoji, confidence: DETECTED_BEHAVIORS[5].confidence, desc: DETECTED_BEHAVIORS[5].desc, time: "1h 20m ago", ref: DETECTED_BEHAVIORS[5].ref },
+      ];
+      setObservations(initial);
+    }
+
+    // Initial fetch
+    fetchLiveData();
+
+    // Poll every 10 seconds for new data from the ESP32
     const interval = setInterval(() => {
       if (!isLive) return;
-      const random = DETECTED_BEHAVIORS[Math.floor(Math.random() * DETECTED_BEHAVIORS.length)];
-      setCurrentBehavior(random);
-      setObservations(prev => [{
-        id: Date.now().toString(),
-        behavior: random.label,
-        emoji: random.emoji,
-        confidence: random.confidence,
-        desc: random.desc,
-        time: "Just now",
-        ref: random.ref,
-      }, ...prev].slice(0, 20));
-    }, 30000);
+      fetchLiveData();
+    }, 10000);
 
-    return () => clearInterval(interval);
-  }, [isLive]);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isLive, user]);
 
   const catName = user?.cats[0]?.name || "Your Cat";
 

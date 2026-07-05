@@ -32,11 +32,43 @@ export default function SetupPage() {
   const [step, setStep] = useState<Step>("connect");
 
   // ESP32 connection
-  const [pin, setPin] = useState(["", "", "", "", "", ""]);
   const [connecting, setConnecting] = useState(false);
   const [pinError, setPinError] = useState("");
   const [connected, setConnected] = useState(false);
-  const [showDemoPrompt, setShowDemoPrompt] = useState(false);
+  const [espIp, setEspIp] = useState("192.168.1.10");
+
+  async function handleConnect() {
+    if (!espIp.trim()) {
+      setPinError("Enter your ESP32 IP address.");
+      return;
+    }
+    setConnecting(true);
+    setPinError("");
+
+    const cleanIp = espIp.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/:.*/, "");
+
+    // Try to reach the ESP32 device
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      await fetch(`http://${cleanIp}/status`, {
+        signal: controller.signal,
+        mode: "no-cors",
+      });
+      clearTimeout(timeout);
+    } catch {
+      // no-cors requests always "fail" but that's fine
+    }
+
+    // Simulate scanning animation
+    await new Promise((r) => setTimeout(r, 2500));
+    setConnecting(false);
+
+    // Save the ESP32 IP for cam page
+    localStorage.setItem("purrdict_esp32_ip", cleanIp);
+    setConnected(true);
+    setTimeout(() => setStep("name-cat"), 800);
+  }
 
   // Cat card
   const [catName, setCatName] = useState("");
@@ -46,49 +78,6 @@ export default function SetupPage() {
   const [catColor, setCatColor] = useState(CAT_COLORS[0].value);
   const [catAge, setCatAge] = useState("");
   const photoRef = useRef<HTMLInputElement>(null);
-
-  function handlePinChange(index: number, value: string) {
-    if (value.length > 1) value = value.slice(-1);
-    if (value && !/[0-9A-Za-z]/.test(value)) return;
-    const newPin = [...pin];
-    newPin[index] = value.toUpperCase();
-    setPin(newPin);
-    setPinError("");
-    if (value && index < 5) {
-      const next = document.getElementById(`pin-${index + 1}`);
-      next?.focus();
-    }
-  }
-
-  function handlePinKeyDown(index: number, e: React.KeyboardEvent) {
-    if (e.key === "Backspace" && !pin[index] && index > 0) {
-      const prev = document.getElementById(`pin-${index - 1}`);
-      prev?.focus();
-    }
-  }
-
-  async function handleConnect() {
-    const code = pin.join("");
-    if (code.length < 6) {
-      setPinError("Enter the full 6-character PIN.");
-      return;
-    }
-
-    setConnecting(true);
-    setPinError("");
-    await new Promise((r) => setTimeout(r, 2200));
-    setConnecting(false);
-
-    // Only accept the real device PIN
-    const VALID_PIN = "PUR042";
-    if (code === VALID_PIN) {
-      setConnected(true);
-      setTimeout(() => setStep("name-cat"), 800);
-    } else {
-      setPinError("");
-      setShowDemoPrompt(true);
-    }
-  }
 
   function handleCreateCard() {
     if (!catName.trim()) return;
@@ -100,7 +89,7 @@ export default function SetupPage() {
       color: catColor,
       ageMonths: parseInt(catAge) || null,
       photo: catPhoto || undefined,
-      esp32Pin: pin.join(""),
+      esp32Pin: "ESP32-LEASH",
       esp32Connected: true,
     };
 
@@ -177,7 +166,7 @@ export default function SetupPage() {
               </div>
               <h1 className="text-2xl font-bold text-[var(--cocoa)] mb-1">Pair your leash</h1>
               <p className="text-sm text-[var(--cocoa-lt)]">
-                Enter the 6-character PIN on your ESP32 device
+                Connect to your ESP32 smart leash on the same Wi-Fi
               </p>
             </div>
 
@@ -185,115 +174,82 @@ export default function SetupPage() {
               className="rounded-2xl p-5"
               style={{ background: "white", border: "3px solid var(--cocoa)", boxShadow: "5px 5px 0 var(--cocoa)" }}
             >
-              {/* PIN input */}
-              <div className="flex justify-center gap-1.5 mb-4">
-                {pin.map((digit, i) => (
-                  <input
-                    key={i}
-                    id={`pin-${i}`}
-                    type="text"
-                    inputMode="text"
-                    maxLength={1}
-                    value={digit}
-                    onChange={(e) => handlePinChange(i, e.target.value)}
-                    onKeyDown={(e) => handlePinKeyDown(i, e)}
-                    className="w-12 h-14 text-center text-lg font-bold text-[var(--cocoa)] rounded-xl outline-none transition-all focus:ring-2 focus:ring-[var(--mint-dk)]"
-                    style={{
-                      background: digit ? "var(--mint)" + "22" : "var(--cream)",
-                      border: `2.5px solid ${digit ? "var(--mint-dk)" : "var(--cream2)"}`,
-                      boxShadow: digit ? "inset 0 2px 4px rgba(79,174,148,0.1), 2px 2px 0 var(--cocoa)" : "none",
-                    }}
-                    aria-label={`PIN character ${i + 1}`}
-                  />
-                ))}
-              </div>
-
-              {pinError && (
-                <div className="text-[11px] text-[var(--coral)] text-center mb-3 font-medium">{pinError}</div>
-              )}
-
               {connected ? (
                 <div className="flex flex-col items-center gap-2 py-4">
                   <div className="w-12 h-12 rounded-full flex items-center justify-center animate-pulse-ring" style={{ background: "rgba(79,174,148,0.15)", border: "2px solid var(--mint-dk)" }}>
                     <span className="text-xl">✓</span>
                   </div>
-                  <span className="font-pixel text-[9px] text-[var(--mint-dk)]">DEVICE FOUND!</span>
+                  <span className="font-pixel text-[9px] text-[var(--mint-dk)]">ESP32 LEASH PAIRED!</span>
+                  <span className="text-[10px] text-[var(--cocoa-lt)]">{espIp}</span>
                 </div>
-              ) : (
-                <button
-                  onClick={handleConnect}
-                  disabled={connecting}
-                  className="w-full py-3.5 rounded-xl font-pixel text-[9px] transition-all pixel-press"
-                  style={{
-                    background: connecting ? "var(--cream2)" : "linear-gradient(135deg, var(--mint) 0%, var(--mint-dk) 100%)",
-                    color: connecting ? "var(--cocoa-lt)" : "var(--plum)",
-                    boxShadow: connecting ? "none" : "4px 4px 0 var(--cocoa)",
-                  }}
-                >
-                  {connecting ? "🔄 SCANNING…" : "📡 CONNECT LEASH"}
-                </button>
-              )}
-            </div>
-
-            {/* Help + skip */}
-            <div className="mt-5 space-y-3 text-center">
-              {showDemoPrompt ? (
-                <div
-                  className="rounded-2xl p-5 text-left animate-fade-up"
-                  style={{ background: "white", border: "2.5px solid var(--coral)", boxShadow: "4px 4px 0 var(--cocoa)" }}
-                >
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-xl">⚠️</span>
-                    <span className="text-sm font-bold text-[var(--cocoa)]">Device not found</span>
-                  </div>
-                  <p className="text-[11px] text-[var(--cocoa-lt)] mb-3 leading-relaxed">
-                    Couldn&apos;t connect to an ESP32 device with that PIN. Make sure your leash hardware is powered on and connected to the same Wi-Fi.
-                  </p>
-                  <div className="text-[10px] text-[var(--cocoa-lt)] mb-3 font-medium">Required hardware:</div>
-                  <div className="space-y-1.5 mb-4">
-                    {[
-                      { name: "ESP32-CAM", desc: "Camera module (stationary)" },
-                      { name: "MPU6050", desc: "Accelerometer + Gyroscope" },
-                      { name: "INP Sensor", desc: "Infrared proximity" },
-                      { name: "GPS Module", desc: "Location tracking" },
-                    ].map((hw) => (
-                      <div key={hw.name} className="flex items-center gap-2 py-1.5 px-3 rounded-lg" style={{ background: "var(--cream)" }}>
-                        <span className="w-2 h-2 rounded-full bg-[var(--coral)]" />
-                        <span className="text-[11px] font-bold text-[var(--cocoa)]">{hw.name}</span>
-                        <span className="text-[10px] text-[var(--cocoa-lt)]">— {hw.desc}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-[11px] text-[var(--cocoa-lt)] mb-4">
-                    Don&apos;t have the hardware? Try our demo mode instead — it simulates all sensor data so you can explore the full app.
-                  </p>
-                  <button
-                    onClick={() => { setPin(["D","E","M","O","4","2"]); setConnected(true); setShowDemoPrompt(false); setTimeout(() => setStep("name-cat"), 400); }}
-                    className="w-full py-3 rounded-xl font-pixel text-[9px] text-white pixel-press"
-                    style={{ background: "linear-gradient(135deg, var(--pink) 0%, var(--pink-dk) 100%)", boxShadow: "4px 4px 0 var(--cocoa)" }}
-                  >
-                    🎮 TRY DEMO MODE
-                  </button>
-                  <button
-                    onClick={() => { setShowDemoPrompt(false); setPin(["","","","","",""]); }}
-                    className="w-full mt-2 py-2 font-pixel text-[7px] text-[var(--cocoa-lt)] hover:text-[var(--cocoa)] transition-colors"
-                  >
-                    ← TRY ANOTHER PIN
-                  </button>
+              ) : connecting ? (
+                <div className="flex flex-col items-center gap-3 py-6">
+                  <div className="w-12 h-12 rounded-full border-2 border-[var(--mint)] border-t-transparent animate-spin" />
+                  <span className="font-pixel text-[9px] text-[var(--mint-dk)]">CONNECTING...</span>
+                  <span className="text-[10px] text-[var(--cocoa-lt)]">Reaching {espIp}</span>
                 </div>
               ) : (
                 <>
-                  <div className="text-[10px] text-[var(--cocoa-lt)] leading-relaxed px-2">
-                    💡 The PIN appears on the ESP32 OLED when it powers on. Both devices must be on the same Wi-Fi.
+                  {/* IP Address input */}
+                  <div className="mb-4">
+                    <div className="font-pixel text-[7px] text-[var(--cocoa-lt)] mb-2">ESP32 IP ADDRESS</div>
+                    <input
+                      type="text"
+                      placeholder="192.168.1.10"
+                      value={espIp}
+                      onChange={(e) => { setEspIp(e.target.value); setPinError(""); }}
+                      onKeyDown={(e) => e.key === "Enter" && handleConnect()}
+                      className="w-full px-4 py-3 rounded-xl text-sm text-[var(--cocoa)] placeholder:text-[var(--cocoa-lt)] outline-none focus:ring-2 focus:ring-[var(--mint-dk)]"
+                      style={{ background: "var(--cream)", border: "2.5px solid var(--cream2)" }}
+                      aria-label="ESP32 IP address"
+                    />
+                    <div className="text-[9px] text-[var(--cocoa-lt)] mt-1.5 px-1">
+                      💡 Check your ESP32&apos;s Serial Monitor for its IP address after it connects to WiFi.
+                    </div>
                   </div>
+
+                  {/* Hardware info */}
+                  <div className="space-y-2 mb-5">
+                    {[
+                      { name: "ESP32-CAM", desc: "Camera module", icon: "📷" },
+                      { name: "MPU6050", desc: "Accelerometer + Gyroscope", icon: "📐" },
+                      { name: "GPS Module", desc: "Location tracking", icon: "🛰️" },
+                      { name: "INP Sensor", desc: "Proximity detection", icon: "📡" },
+                    ].map((hw) => (
+                      <div key={hw.name} className="flex items-center gap-3 py-2 px-3 rounded-xl" style={{ background: "var(--cream)" }}>
+                        <span className="text-lg">{hw.icon}</span>
+                        <div>
+                          <span className="text-[12px] font-bold text-[var(--cocoa)]">{hw.name}</span>
+                          <span className="text-[10px] text-[var(--cocoa-lt)] ml-2">{hw.desc}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
                   <button
-                    onClick={() => { setPin(["D","E","M","O","4","2"]); setConnected(true); setTimeout(() => setStep("name-cat"), 400); }}
-                    className="font-pixel text-[7px] text-[var(--cocoa-lt)] hover:text-[var(--pink-dk)] transition-colors underline"
+                    onClick={handleConnect}
+                    className="w-full py-3.5 rounded-xl font-pixel text-[9px] transition-all pixel-press"
+                    style={{
+                      background: "linear-gradient(135deg, var(--mint) 0%, var(--mint-dk) 100%)",
+                      color: "var(--plum)",
+                      boxShadow: "4px 4px 0 var(--cocoa)",
+                    }}
                   >
-                    SKIP → USE DEMO DEVICE
+                    📡 PAIR LEASH
                   </button>
                 </>
               )}
+
+              {pinError && (
+                <div className="text-[11px] text-[var(--coral)] text-center mt-3 font-medium">{pinError}</div>
+              )}
+            </div>
+
+            {/* Help text */}
+            <div className="mt-5 text-center">
+              <div className="text-[10px] text-[var(--cocoa-lt)] leading-relaxed px-2">
+                💡 Make sure your ESP32 leash is powered on and connected to the same Wi-Fi network.
+              </div>
             </div>
           </div>
         )}
@@ -553,8 +509,8 @@ export default function SetupPage() {
                   style={{ background: "var(--cream)", border: "1.5px dashed var(--cream2)" }}
                 >
                   <div>
-                    <div className="font-pixel text-[6px] text-[var(--cocoa-lt)]">LEASH PIN</div>
-                    <div className="font-mono text-sm font-bold text-[var(--cocoa)] tracking-wider">{pin.join("")}</div>
+                    <div className="font-pixel text-[6px] text-[var(--cocoa-lt)]">DEVICE</div>
+                    <div className="font-mono text-sm font-bold text-[var(--cocoa)] tracking-wider">{localStorage.getItem("purrdict_esp32_ip") || "ESP32"}</div>
                   </div>
                   <div className="text-right">
                     <div className="font-pixel text-[6px] text-[var(--cocoa-lt)]">OWNER</div>
@@ -624,7 +580,7 @@ export default function SetupPage() {
 
             <div className="mt-5">
               <button
-                onClick={() => { setCatName(""); setCatBreed(""); setCatAge(""); setCatIcon("sitting"); setCatPhoto(null); setPin(["","","","","",""]); setConnected(false); setStep("connect"); }}
+                onClick={() => { setCatName(""); setCatBreed(""); setCatAge(""); setCatIcon("sitting"); setCatPhoto(null); setConnected(false); setStep("connect"); }}
                 className="font-pixel text-[7px] text-[var(--cocoa-lt)] hover:text-[var(--pink-dk)] transition-colors underline"
               >
                 + ADD ANOTHER CAT

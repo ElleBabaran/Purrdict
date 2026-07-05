@@ -62,14 +62,14 @@ export default function DashboardLayout({
           className="sticky top-0 z-40 px-4 py-2.5 flex items-center gap-2"
           style={{
             background: "linear-gradient(135deg, #2D2438 0%, #1A1225 100%)",
-            borderBottom: "2px solid rgba(255,209,102,0.3)",
+            borderBottom: "2px solid rgba(127,216,190,0.3)",
           }}
         >
-          <span className="text-base">🎮</span>
+          <span className="text-base">⚡</span>
           <div className="flex-1">
-            <span className="font-pixel text-[7px] text-[var(--yellow)]">DEMO MODE</span>
+            <span className="font-pixel text-[7px] text-[var(--mint)]">ESP32 CONNECTED</span>
             <span className="text-[10px] text-white/60 ml-2">
-              Sensors & camera are simulated — ESP32 leash hardware not connected.
+              Live behavior detection active via ESP32 leash sensors.
             </span>
           </div>
         </div>

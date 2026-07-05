@@ -4,11 +4,11 @@ import { query, isDbAvailable } from "@/lib/db";
 
 const JWT_SECRET = process.env.JWT_SECRET || "purrdict-dev-secret-change-in-prod";
 
-// Allow larger request bodies for media uploads (10MB)
-export const maxDuration = 30;
+// Allow larger request bodies for media uploads (50MB)
+export const maxDuration = 60;
 
-// Max file size: 5MB in base64
-const MAX_MEDIA_SIZE = 5 * 1024 * 1024 * 1.37; // ~6.85MB base64 for 5MB file
+// Max file size: 50MB in base64
+const MAX_MEDIA_SIZE = 50 * 1024 * 1024 * 1.37; // ~68.5MB base64 for 50MB file
 
 function getUserId(request: NextRequest): string | null {
   const auth = request.headers.get("authorization");
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
 
     // Validate media size
     if (mediaData && mediaData.length > MAX_MEDIA_SIZE) {
-      return NextResponse.json({ error: "File too large. Max 5MB." }, { status: 400 });
+      return NextResponse.json({ error: "File too large. Max 50MB." }, { status: 400 });
     }
 
     if (!isDbAvailable()) {

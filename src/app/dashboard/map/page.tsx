@@ -1,49 +1,83 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import TopBar from "@/components/nav/TopBar";
 import GpsMap from "@/components/GpsMap";
 import { useAuth } from "@/lib/AuthContext";
 
-// Simulated GPS path — cat wandering around a neighborhood
-// These coordinates form a realistic walking path near a home
-// Center: 14.5995, 120.9842 (Manila area — change to your actual location if you want)
-const HOME: [number, number] = [14.5995, 120.9842];
+const HOME_ADDRESS_KEY = "purrdict_home_address";
+const HOME_COORDS_KEY = "purrdict_home_coords";
 const GEOFENCE_RADIUS = 80; // meters
 
-const GPS_PATH: { lat: number; lng: number; label: string }[] = [
-  { lat: 14.5995, lng: 120.9842, label: "Home" },
-  { lat: 14.5996, lng: 120.9844, label: "Front yard" },
-  { lat: 14.5998, lng: 120.9845, label: "Sidewalk" },
-  { lat: 14.6000, lng: 120.9846, label: "Neighbor's fence" },
-  { lat: 14.6002, lng: 120.9845, label: "Under the car" },
-  { lat: 14.6003, lng: 120.9843, label: "Garden" },
-  { lat: 14.6004, lng: 120.9840, label: "Tree spot" },
-  { lat: 14.6003, lng: 120.9838, label: "Wall corner" },
-  { lat: 14.6001, lng: 120.9837, label: "Alley" },
-  { lat: 14.5999, lng: 120.9838, label: "Drain pipe" },
-  { lat: 14.5997, lng: 120.9839, label: "Back gate" },
-  { lat: 14.5996, lng: 120.9841, label: "Backyard" },
-  { lat: 14.5995, lng: 120.9842, label: "Home" },
-];
+// Generate a realistic GPS path around a home point
+function generateGpsPath(home: [number, number]) {
+  const [lat, lng] = home;
+  // Small offsets to simulate cat wandering (roughly 50-80m radius)
+  const offsets = [
+    { dlat: 0, dlng: 0, label: "Home" },
+    { dlat: 0.0001, dlng: 0.0002, label: "Front yard" },
+    { dlat: 0.0003, dlng: 0.0003, label: "Sidewalk" },
+    { dlat: 0.0005, dlng: 0.0004, label: "Neighbor's fence" },
+    { dlat: 0.0007, dlng: 0.0003, label: "Under the car" },
+    { dlat: 0.0008, dlng: 0.0001, label: "Garden" },
+    { dlat: 0.0009, dlng: -0.0002, label: "Tree spot" },
+    { dlat: 0.0008, dlng: -0.0004, label: "Wall corner" },
+    { dlat: 0.0006, dlng: -0.0005, label: "Alley" },
+    { dlat: 0.0004, dlng: -0.0004, label: "Drain pipe" },
+    { dlat: 0.0002, dlng: -0.0003, label: "Back gate" },
+    { dlat: 0.0001, dlng: -0.0001, label: "Backyard" },
+    { dlat: 0, dlng: 0, label: "Home" },
+  ];
+  return offsets.map((o) => ({
+    lat: lat + o.dlat,
+    lng: lng + o.dlng,
+    label: o.label,
+  }));
+}
 
-// Trail stops — these are the static markers showing where the cat rested
-const TRAIL_STOPS = [
-  { lat: 14.6000, lng: 120.9846, label: "Sunbathing", time: "9:15 AM", emoji: "☀️" },
-  { lat: 14.6003, lng: 120.9843, label: "Bird watching", time: "10:02 AM", emoji: "🐦" },
-  { lat: 14.6004, lng: 120.9840, label: "Nap under tree", time: "11:30 AM", emoji: "😴" },
-  { lat: 14.5999, lng: 120.9838, label: "Hunting lizard", time: "1:45 PM", emoji: "🦎" },
-  { lat: 14.5996, lng: 120.9841, label: "Grooming", time: "2:20 PM", emoji: "✨" },
-];
+// Generate trail stops around home
+function generateTrailStops(home: [number, number]) {
+  const [lat, lng] = home;
+  return [
+    { lat: lat + 0.0005, lng: lng + 0.0004, label: "Resting", time: "9:15 AM", emoji: "☀️" },
+    { lat: lat + 0.0008, lng: lng + 0.0001, label: "Exploring", time: "10:02 AM", emoji: "🐾" },
+    { lat: lat + 0.0009, lng: lng - 0.0002, label: "Nap spot", time: "11:30 AM", emoji: "😴" },
+    { lat: lat + 0.0004, lng: lng - 0.0004, label: "Playing", time: "1:45 PM", emoji: "🎯" },
+    { lat: lat + 0.0001, lng: lng - 0.0001, label: "Grooming", time: "2:20 PM", emoji: "✨" },
+  ];
+}
 
 export default function MapPage() {
   const { user } = useAuth();
   const catName = user?.cats[0]?.name || "Mochi";
 
-  const [currentPos, setCurrentPos] = useState<[number, number]>(HOME);
+  const [homeAddress, setHomeAddress] = useState("");
+  const [homeCoords, setHomeCoords] = useState<[number, number] | null>(null);
+  const [addressInput, setAddressInput] = useState("");
+  const [savingAddress, setSavingAddress] = useState(false);
+  const [addressError, setAddressError] = useState("");
+  // Confirmation step
+  const [pendingCoords, setPendingCoords] = useState<[number, number] | null>(null);
+  const [resolvedAddress, setResolvedAddress] = useState("");
+
+  const [currentPos, setCurrentPos] = useState<[number, number] | null>(null);
   const [pathIndex, setPathIndex] = useState(0);
   const [status, setStatus] = useState("At home");
   const [distance, setDistance] = useState(0);
   const [currentTime, setCurrentTime] = useState("");
+
+  // Load saved home address
+  useEffect(() => {
+    const savedAddr = localStorage.getItem(HOME_ADDRESS_KEY);
+    const savedCoords = localStorage.getItem(HOME_COORDS_KEY);
+    if (savedAddr && savedCoords) {
+      setHomeAddress(savedAddr);
+      try {
+        const coords = JSON.parse(savedCoords);
+        setHomeCoords([coords.lat, coords.lng]);
+        setCurrentPos([coords.lat, coords.lng]);
+      } catch { /* ignore */ }
+    }
+  }, []);
 
   // Clock
   useEffect(() => {
@@ -56,28 +90,191 @@ export default function MapPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Simulate GPS movement — cat moves every 3 seconds
+  // Simulate GPS movement once home is set
   useEffect(() => {
+    if (!homeCoords) return;
+    const gpsPath = generateGpsPath(homeCoords);
+
     const interval = setInterval(() => {
       setPathIndex((prev) => {
-        const next = (prev + 1) % GPS_PATH.length;
-        const point = GPS_PATH[next];
+        const next = (prev + 1) % gpsPath.length;
+        const point = gpsPath[next];
         setCurrentPos([point.lat, point.lng]);
         setStatus(point.label);
 
-        // Calculate distance from home (rough meters)
-        const dLat = (point.lat - HOME[0]) * 111320;
-        const dLng = (point.lng - HOME[1]) * 111320 * Math.cos(HOME[0] * Math.PI / 180);
+        // Calculate distance from home
+        const dLat = (point.lat - homeCoords[0]) * 111320;
+        const dLng = (point.lng - homeCoords[1]) * 111320 * Math.cos(homeCoords[0] * Math.PI / 180);
         setDistance(Math.round(Math.sqrt(dLat * dLat + dLng * dLng)));
 
         return next;
       });
     }, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [homeCoords]);
+
+  // Geocode address — step 1: resolve and show for confirmation
+  const handleSearchAddress = useCallback(async () => {
+    if (!addressInput.trim()) {
+      setAddressError("Enter your home address.");
+      return;
+    }
+    setSavingAddress(true);
+    setAddressError("");
+    setPendingCoords(null);
+    setResolvedAddress("");
+
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addressInput.trim())}&format=json&limit=1&addressdetails=1`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.length > 0) {
+          const lat = parseFloat(data[0].lat);
+          const lng = parseFloat(data[0].lon);
+          const displayName = data[0].display_name || addressInput.trim();
+          
+          // Check if it's a real specific address (has house number or road)
+          const addr = data[0].address || {};
+          const hasSpecificLocation = addr.house_number || addr.road || addr.building || addr.neighbourhood || addr.suburb;
+          
+          if (!hasSpecificLocation && !addr.city && !addr.town && !addr.village) {
+            setAddressError("Address too vague. Please include street name or more details.");
+            setSavingAddress(false);
+            return;
+          }
+
+          setPendingCoords([lat, lng]);
+          setResolvedAddress(displayName);
+        } else {
+          setAddressError("Address not found. Make sure the address exists and try including city/country.");
+        }
+      } else {
+        setAddressError("Geocoding failed. Check your connection.");
+      }
+    } catch {
+      setAddressError("Network error. Try again.");
+    }
+    setSavingAddress(false);
+  }, [addressInput]);
+
+  // Step 2: User confirms the resolved address
+  function handleConfirmAddress() {
+    if (!pendingCoords) return;
+    setHomeCoords(pendingCoords);
+    setCurrentPos(pendingCoords);
+    setHomeAddress(resolvedAddress || addressInput.trim());
+    localStorage.setItem(HOME_ADDRESS_KEY, resolvedAddress || addressInput.trim());
+    localStorage.setItem(HOME_COORDS_KEY, JSON.stringify({ lat: pendingCoords[0], lng: pendingCoords[1] }));
+    setPendingCoords(null);
+    setResolvedAddress("");
+  }
+
+  function handleRejectAddress() {
+    setPendingCoords(null);
+    setResolvedAddress("");
+    setAddressError("");
+  }
 
   const isInsideGeofence = distance <= GEOFENCE_RADIUS;
+  const trailStops = homeCoords ? generateTrailStops(homeCoords) : [];
 
+  // ─── No address set yet ───
+  if (!homeCoords) {
+    return (
+      <>
+        <TopBar title="▸ GPS TRACKER" />
+        <div className="px-4 py-5 space-y-5">
+          <div className="text-center">
+            <div
+              className="w-20 h-20 rounded-2xl mx-auto mb-4 flex items-center justify-center text-4xl"
+              style={{
+                background: "linear-gradient(135deg, var(--plum) 0%, var(--plum-xl) 100%)",
+                border: "3px solid var(--cocoa)",
+                boxShadow: "4px 4px 0 var(--cocoa)",
+              }}
+            >
+              🗺️
+            </div>
+            <h2 className="text-xl font-bold text-[var(--cocoa)] mb-1">Set Your Home Location</h2>
+            <p className="text-sm text-[var(--cocoa-lt)]">
+              Enter your home address to see the GPS map and track your cat&apos;s location relative to home.
+            </p>
+          </div>
+
+          <div
+            className="rounded-2xl p-5"
+            style={{ background: "white", border: "3px solid var(--cocoa)", boxShadow: "5px 5px 0 var(--cocoa)" }}
+          >
+            {/* Confirmation step — show resolved address */}
+            {pendingCoords && resolvedAddress ? (
+              <div className="space-y-4">
+                <div className="font-pixel text-[7px] text-[var(--mint-dk)] mb-1">✓ ADDRESS FOUND</div>
+                <div className="px-3 py-3 rounded-xl text-[12px] text-[var(--cocoa)] leading-relaxed" style={{ background: "var(--cream)", border: "2px solid var(--mint-dk)" }}>
+                  📍 {resolvedAddress}
+                </div>
+                <div className="text-[10px] text-[var(--cocoa-lt)] text-center">
+                  Is this the correct location?
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={handleRejectAddress}
+                    className="py-3 rounded-xl font-pixel text-[8px] text-[var(--cocoa)] transition-all"
+                    style={{ background: "var(--cream2)", border: "2px solid var(--cream2)" }}
+                  >
+                    ✕ NO, TRY AGAIN
+                  </button>
+                  <button
+                    onClick={handleConfirmAddress}
+                    className="py-3 rounded-xl font-pixel text-[8px] text-white transition-all pixel-press"
+                    style={{ background: "linear-gradient(135deg, var(--mint) 0%, var(--mint-dk) 100%)", boxShadow: "3px 3px 0 var(--cocoa)" }}
+                  >
+                    ✓ YES, SET HOME
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="font-pixel text-[7px] text-[var(--cocoa-lt)] mb-2">🏠 HOME ADDRESS</div>
+                <input
+                  type="text"
+                  placeholder="e.g. 123 Main St, Quezon City, Philippines"
+                  value={addressInput}
+                  onChange={(e) => { setAddressInput(e.target.value); setAddressError(""); }}
+                  onKeyDown={(e) => e.key === "Enter" && handleSearchAddress()}
+                  className="w-full px-4 py-3 rounded-xl text-sm text-[var(--cocoa)] placeholder:text-[var(--cocoa-lt)] outline-none focus:ring-2 focus:ring-[var(--mint-dk)] mb-3"
+                  style={{ background: "var(--cream)", border: "2.5px solid var(--cream2)" }}
+                  aria-label="Home address"
+                />
+
+                {addressError && (
+                  <div className="text-[11px] text-[var(--coral)] mb-3 font-medium">{addressError}</div>
+                )}
+
+                <button
+                  onClick={handleSearchAddress}
+                  disabled={savingAddress || !addressInput.trim()}
+                  className="w-full py-3.5 rounded-xl font-pixel text-[9px] transition-all pixel-press disabled:opacity-40"
+                  style={{
+                    background: "linear-gradient(135deg, var(--mint) 0%, var(--mint-dk) 100%)",
+                    color: "var(--plum)",
+                    boxShadow: "4px 4px 0 var(--cocoa)",
+                  }}
+                >
+                  {savingAddress ? "📍 SEARCHING..." : "📍 FIND ADDRESS"}
+                </button>
+
+                <div className="text-[9px] text-[var(--cocoa-lt)] mt-3 text-center leading-relaxed">
+                  Enter your full home address including street, city, and country for accurate results.
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // ─── Map view (address is set) ───
   return (
     <>
       <TopBar title="▸ GPS TRACKER" />
@@ -111,10 +308,10 @@ export default function MapPage() {
           {/* Map */}
           <GpsMap
             catName={catName}
-            homePosition={HOME}
+            homePosition={homeCoords}
             geofenceRadius={GEOFENCE_RADIUS}
-            trail={TRAIL_STOPS}
-            currentPosition={currentPos}
+            trail={trailStops}
+            currentPosition={currentPos || homeCoords}
           />
 
           {/* Legend */}
@@ -129,6 +326,23 @@ export default function MapPage() {
               <span className="w-4 h-0.5 bg-[#FFD166] rounded" /> Trail
             </span>
           </div>
+        </div>
+
+        {/* ── Home Address Info ── */}
+        <div className="glass-card p-3 flex items-center justify-between">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span className="text-lg">🏠</span>
+            <div className="min-w-0">
+              <div className="font-pixel text-[6px] text-[var(--mint-dk)]">HOME</div>
+              <div className="text-[11px] text-[var(--cocoa)] truncate">{homeAddress}</div>
+            </div>
+          </div>
+          <button
+            onClick={() => { setHomeCoords(null); setHomeAddress(""); setAddressInput(""); localStorage.removeItem(HOME_ADDRESS_KEY); localStorage.removeItem(HOME_COORDS_KEY); }}
+            className="font-pixel text-[6px] text-[var(--cocoa-lt)] hover:text-[var(--coral)] px-2 py-1 rounded-lg transition-colors"
+          >
+            CHANGE
+          </button>
         </div>
 
         {/* ── Status Card ── */}
@@ -173,36 +387,11 @@ export default function MapPage() {
           </div>
         </div>
 
-        {/* ── Today's Stops ── */}
-        <div className="glass-card p-4">
-          <div className="font-pixel text-[8px] text-[var(--cocoa-lt)] mb-3">TODAY&apos;S STOPS</div>
-          <div className="space-y-2">
-            {TRAIL_STOPS.map((stop, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-                style={{ background: "var(--cream)" }}
-              >
-                <div
-                  className="w-9 h-9 rounded-lg flex items-center justify-center text-base flex-shrink-0"
-                  style={{ background: "var(--cream2)", border: "1.5px solid var(--cocoa)" }}
-                >
-                  {stop.emoji}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] font-bold text-[var(--cocoa)] truncate">{stop.label}</div>
-                  <div className="font-pixel text-[7px] text-[var(--cocoa-lt)] mt-0.5">{stop.time}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
         {/* ── Stats ── */}
         <div className="grid grid-cols-3 gap-2">
           {[
             { label: "DISTANCE", value: `${distance}m`, color: "var(--mint-dk)" },
-            { label: "STOPS", value: `${TRAIL_STOPS.length}`, color: "var(--yellow)" },
+            { label: "STOPS", value: `${trailStops.length}`, color: "var(--yellow)" },
             { label: "TIME OUT", value: "2.4h", color: "var(--pink)" },
           ].map((stat) => (
             <div
