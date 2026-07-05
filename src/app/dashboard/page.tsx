@@ -130,16 +130,9 @@ export default function DashboardPage() {
         // API unavailable — fall through to demo data
       }
 
-      // Fallback: demo/simulated data
+      // Fallback: show "waiting" state — no fake data
       if (cancelled) return;
-      const initial: Observation[] = [
-        { id: "o1", behavior: DETECTED_BEHAVIORS[1].label, emoji: DETECTED_BEHAVIORS[1].emoji, confidence: DETECTED_BEHAVIORS[1].confidence, desc: DETECTED_BEHAVIORS[1].desc, time: "Just now", ref: DETECTED_BEHAVIORS[1].ref },
-        { id: "o2", behavior: DETECTED_BEHAVIORS[2].label, emoji: DETECTED_BEHAVIORS[2].emoji, confidence: DETECTED_BEHAVIORS[2].confidence, desc: DETECTED_BEHAVIORS[2].desc, time: "12 min ago", ref: DETECTED_BEHAVIORS[2].ref },
-        { id: "o3", behavior: DETECTED_BEHAVIORS[0].label, emoji: DETECTED_BEHAVIORS[0].emoji, confidence: DETECTED_BEHAVIORS[0].confidence, desc: DETECTED_BEHAVIORS[0].desc, time: "45 min ago", ref: DETECTED_BEHAVIORS[0].ref },
-        { id: "o4", behavior: DETECTED_BEHAVIORS[4].label, emoji: DETECTED_BEHAVIORS[4].emoji, confidence: DETECTED_BEHAVIORS[4].confidence, desc: DETECTED_BEHAVIORS[4].desc, time: "1h ago", ref: DETECTED_BEHAVIORS[4].ref },
-        { id: "o5", behavior: DETECTED_BEHAVIORS[5].label, emoji: DETECTED_BEHAVIORS[5].emoji, confidence: DETECTED_BEHAVIORS[5].confidence, desc: DETECTED_BEHAVIORS[5].desc, time: "1h 20m ago", ref: DETECTED_BEHAVIORS[5].ref },
-      ];
-      setObservations(initial);
+      setObservations([]);
     }
 
     // Initial fetch
