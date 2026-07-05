@@ -60,6 +60,17 @@ export default function CamPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camIp]);
 
+  // Fast-refresh snapshot loop (simulates live video via API)
+  useEffect(() => {
+    if (status !== "connected") return;
+    const interval = setInterval(() => {
+      if (imgRef.current) {
+        imgRef.current.src = `/api/esp32/snapshot?t=${Date.now()}`;
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [status]);
+
   function connectToCamera(ip: string) {
     if (!ip.trim()) return;
 
@@ -208,8 +219,17 @@ export default function CamPage() {
             </div>
           )}
 
-          {/* MJPEG Stream — <img> tag handles multipart JPEG natively */}
-          {streamUrl && (
+          {/* Live Feed — fast-refreshing snapshot from API */}
+          {status === "connected" && (
+            <img
+              ref={imgRef}
+              src={`/api/esp32/snapshot?t=${Date.now()}`}
+              alt="ESP32-CAM Live Feed"
+              className="w-full h-full object-cover"
+              style={{ transition: "opacity 0.2s ease-in" }}
+            />
+          )}
+          {streamUrl && status !== "connected" && (
             <img
               ref={imgRef}
               src={streamUrl}
