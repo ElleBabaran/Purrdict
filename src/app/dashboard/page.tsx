@@ -98,7 +98,7 @@ export default function DashboardPage() {
     async function fetchLiveData() {
       try {
         const catId = user?.cats[0]?.id || "";
-        const res = await fetch(`/api/esp32/data?catId=${catId}&limit=20`);
+        const res = await fetch(`/api/esp32/data?limit=20`);
         if (!res.ok) throw new Error("API unavailable");
         const data = await res.json();
 

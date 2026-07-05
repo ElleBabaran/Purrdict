@@ -176,30 +176,27 @@ export async function GET(request: NextRequest) {
       `SELECT motion, motion_intensity, distance_cm, temperature_c, humidity_pct, 
               free_heap, uptime_secs, rssi, recorded_at
        FROM sensor_readings 
-       WHERE ($1::uuid IS NULL OR cat_id = $1)
        ORDER BY recorded_at DESC 
-       LIMIT $2`,
-      [catId, limit]
+       LIMIT $1`,
+      [limit]
     );
 
     // Get latest behavior events
     const behaviors = await query(
       `SELECT behavior, confidence, emoji, description, research_ref, odba, recorded_at
        FROM behavior_events 
-       WHERE ($1::uuid IS NULL OR cat_id = $1)
        ORDER BY recorded_at DESC 
-       LIMIT $2`,
-      [catId, limit]
+       LIMIT $1`,
+      [limit]
     );
 
     // Get device status
     const devices = await query(
       `SELECT id, pin, is_online, last_seen, battery_pct, ip_address
        FROM esp32_devices 
-       WHERE ($1::uuid IS NULL OR cat_id = $1)
        ORDER BY last_seen DESC NULLS LAST
        LIMIT 1`,
-      [catId]
+      []
     );
 
     return NextResponse.json({
