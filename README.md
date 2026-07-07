@@ -20,10 +20,10 @@ No guesswork. No "AI magic." Every detection method traces back to a published p
 
 ## 📄 Project Report
 
-> 📋 [Read the full project report →](documentation/PROJECT_REPORT.md)
-> 📈 [Read the development progress report →](documentation/PROGRESS_REPORT.md)
-> 🔒 [Read the ESP32 snapshot security analysis →](documentation/aikido_Scan)
-> 🔒 [Read the ESP32 snapshot security analysis →](documentation/aikido_Scan2)
+>> 📋 [Read the full project report →](documentation/PROJECT_REPORT.md)
+>>📈 [Read the development progress report →](documentation/PROGRESS_REPORT.md)
+>>🔒 [Read the ESP32 snapshot security analysis →](documentation/aikido_Scan)
+>>🔒 [Read the ESP32 snapshot security analysis →](documentation/aikido_Scan2)
 ---
 
 ## 🐱 Theme Relevance — "Coding for Kitties"
