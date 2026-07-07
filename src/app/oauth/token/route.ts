@@ -184,7 +184,14 @@ async function handleRefreshToken(params: URLSearchParams) {
   }
 
   const client = await getClient(existingToken.client_id);
-  if (client && client.token_endpoint_auth_method === "client_secret_post") {
+  if (!client) {
+    return NextResponse.json(
+      { error: "invalid_grant", error_description: "Client no longer exists" },
+      { status: 400 }
+    );
+  }
+  
+  if (client.token_endpoint_auth_method === "client_secret_post") {
     const clientSecret = params.get("client_secret");
     if (!clientSecret || !client.client_secret || !timingSafeStringEqual(clientSecret, client.client_secret)) {
       return NextResponse.json(
