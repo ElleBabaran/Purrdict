@@ -19,7 +19,7 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
 /**
  * POST /api/gps/monitor
  * Logs a single GPS reading for a cat and checks it against the home geofence.
- * Body: { catId, deviceId, latitude, longitude, homeLatitude, homeLongitude, radiusMeters?, accuracyM?, speedKmh? }
+ * Body: { deviceId, latitude, longitude, homeLatitude, homeLongitude, radiusMeters?, accuracyM?, speedKmh? }
  * Header: X-Device-Secret: <secret returned by POST /api/esp32/pair>
  *
  * Missing Authentication fix: this endpoint previously accepted a
@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
       speedKmh,
     } = body;
 
+    // Validate required coordinate parameters
     if (
       typeof latitude !== "number" ||
       typeof longitude !== "number" ||
@@ -52,6 +53,15 @@ export async function POST(request: NextRequest) {
       typeof homeLongitude !== "number"
     ) {
       return NextResponse.json({ error: "Invalid coordinates." }, { status: 400 });
+    }
+
+    // Validate optional numeric parameters
+    if (
+      (radiusMeters !== undefined && typeof radiusMeters !== "number") ||
+      (accuracyM !== undefined && typeof accuracyM !== "number") ||
+      (speedKmh !== undefined && speedKmh !== null && typeof speedKmh !== "number")
+    ) {
+      return NextResponse.json({ error: "Invalid numeric parameters." }, { status: 400 });
     }
 
     const distanceMeters = Math.round(
@@ -68,10 +78,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const deviceSecret = request.headers.get("x-device-secret");
-    if (!clientDeviceId || !deviceSecret) {
+    // Validate deviceId type
+    if (!clientDeviceId || typeof clientDeviceId !== "string") {
       return NextResponse.json(
-        { error: "Missing deviceId or X-Device-Secret header. Pair the device first via /api/esp32/pair." },
+        { error: "Missing or invalid deviceId." },
+        { status: 400 }
+      );
+    }
+
+    const deviceSecret = request.headers.get("x-device-secret");
+    if (!deviceSecret) {
+      return NextResponse.json(
+        { error: "Missing X-Device-Secret header. Pair the device first via /api/esp32/pair." },
         { status: 401 }
       );
     }
