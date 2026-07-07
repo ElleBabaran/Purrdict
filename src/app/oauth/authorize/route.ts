@@ -23,7 +23,7 @@ function htmlPage(params: {
   requestedScope: string;
 }): string {
   const errorHtml = params.error
-    ? `<div style="background:#fff0f0;border:1px solid #ffcdd2;border-radius:8px;padding:12px;margin-bottom:16px;color:#c62828;font-size:14px;">${params.error}</div>`
+    ? `<div style="background:#fff0f0;border:1px solid #ffcdd2;border-radius:8px;padding:12px;margin-bottom:16px;color:#c62828;font-size:14px;">${escapeHtml(params.error)}</div>`
     : "";
 
   return `<!DOCTYPE html>
