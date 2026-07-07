@@ -117,6 +117,7 @@ async function persistSnapshotInBackground(imageBuffer: Buffer, deviceId: string
 }
 
 export async function GET(request: NextRequest) {
+  // SECURITY: Require authentication before processing any request
   const userId = getUserId(request);
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -125,14 +126,21 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const catId = searchParams.get("catId");
+    
+    // SECURITY: Require catId parameter to prevent any potential data leakage
     if (!catId) {
       return NextResponse.json({ error: "catId is required." }, { status: 400 });
     }
 
+    // SECURITY: Even in demo mode (no DB), we still require authentication and catId
+    // to maintain consistent security posture across all deployment modes
     if (!isDbAvailable()) {
       return respondWithSnapshot(null, 0);
     }
 
+    // SECURITY: Verify the requested cat belongs to the authenticated user
+    // This prevents horizontal privilege escalation where an attacker with a valid
+    // JWT could attempt to access another user's cat snapshots by guessing catId values
     const cat = await queryOne<{ id: string }>(
       "SELECT id FROM cats WHERE id = $1 AND owner_id = $2",
       [catId, userId]
@@ -141,6 +149,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Cat not found for this account." }, { status: 404 });
     }
 
+    // SECURITY: Query devices only for the verified cat (already confirmed to belong to userId)
+    // This ensures we never return snapshots from devices paired to other users' cats
     const device = await queryOne<{ id: string; latest_snapshot: string | null; latest_snapshot_at: string | null }>(
       `SELECT id, latest_snapshot, latest_snapshot_at
        FROM esp32_devices
@@ -196,15 +206,18 @@ function respondWithSnapshot(buffer: Buffer | null, snapshotTime: number) {
         "Content-Type": "image/jpeg",
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "X-Snapshot-Age": "none",
+        // SECURITY: No CORS headers - this endpoint requires authentication
+        // and should only be accessed same-origin from the authenticated dashboard
       },
     });
   }
 
-  // No "Access-Control-Allow-Origin: *" here — this response now carries
-  // a specific user's cat snapshot and is fetched same-origin from the
-  // dashboard with a Bearer token, so a wildcard CORS header would let
-  // any third-party site read an authenticated user's private camera
-  // frame if it were ever fetched cross-origin with credentials.
+  // SECURITY: No "Access-Control-Allow-Origin: *" header is set here.
+  // This response carries a specific user's cat snapshot and is fetched same-origin
+  // from the dashboard with a Bearer token. A wildcard CORS header would allow
+  // any third-party site to read an authenticated user's private camera frame
+  // if it were ever fetched cross-origin with credentials. The absence of CORS
+  // headers ensures this endpoint can only be accessed by same-origin requests.
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "image/jpeg",
