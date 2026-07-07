@@ -148,7 +148,7 @@ function formatScopes(scope: string): string {
   };
   return scope
     .split(" ")
-    .map((s) => descriptions[s] || s)
+    .map((s) => descriptions[s] || escapeHtml(s))
     .join("<br/>");
 }
 
