@@ -18,6 +18,7 @@
 
 ### Demo Mode
 -- You can use the demo if you want
+-- Most of it consist a placeholder
 
 Without the required hardware:
 
