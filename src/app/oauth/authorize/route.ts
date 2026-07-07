@@ -222,6 +222,21 @@ function sanitizeScope(scope: string): string {
   return allowed.length > 0 ? allowed.join(" ") : "read";
 }
 
+/**
+ * Validates that a string is a well-formed URL.
+ * Returns true if the URL can be parsed, false otherwise.
+ * This prevents malformed redirect_uri values from causing exceptions
+ * that could leak stack traces or internal implementation details.
+ */
+function isValidUrl(urlString: string): boolean {
+  try {
+    new URL(urlString);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ── GET: Show consent page ──
 
 export async function GET(request: NextRequest) {
@@ -238,6 +253,15 @@ export async function GET(request: NextRequest) {
 
     if (!clientId || !redirectUri || responseType !== "code") {
       return new NextResponse("Invalid authorization request. Missing required parameters.", {
+        status: 400,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+
+    // Validate redirect_uri format before any further processing to prevent
+    // malformed URLs from causing exceptions that could leak implementation details
+    if (!isValidUrl(redirectUri)) {
+      return new NextResponse("Invalid redirect_uri format.", {
         status: 400,
         headers: { "Content-Type": "text/plain" },
       });
@@ -313,6 +337,17 @@ export async function POST(request: NextRequest) {
 
     if (!clientId || !redirectUri || !email || !password) {
       return new NextResponse("Missing required form fields.", {
+        status: 400,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+
+    // Validate redirect_uri format before any further processing to prevent
+    // malformed URLs from causing exceptions that could leak implementation details.
+    // This is critical in the deny flow (line 347) where new URL(redirectUri) is
+    // called directly, and in Demo Mode where resolveClientOrError skips validation.
+    if (!isValidUrl(redirectUri)) {
+      return new NextResponse("Invalid redirect_uri format.", {
         status: 400,
         headers: { "Content-Type": "text/plain" },
       });
