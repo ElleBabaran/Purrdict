@@ -2,9 +2,7 @@
 
 > **#hackthekitty 2026** | Built with Next.js 16, PostgreSQL
 
-**Purrdict** is an IoT-powered cat monitoring platform that uses an ESP32 smart leash to track your cat's behavior, emotions, location, and health — grounded in peer-reviewed veterinary and ethology research.
-
-No guesswork. No "AI magic." Every detection method traces back to a published paper.
+**Purrdict** is an Internet of Things (IoT)-based cat monitoring platform that integrates an ESP32-CAM smart harness with a live camera feed, GPS location and distance tracking, motion sensors, and a Next.js web application (also available as an Android app through Capacitor), allowing owners to remotely monitor their cat's activities, location, behavior, emotional state, and health in real time. Unlike conventional AI pet trackers, Purrdict emphasizes live visual monitoring and accurate GPS tracking while using evidence-based detection rules supported by 17 peer-reviewed veterinary and animal behavior studies, delivering transparent, scientifically supported insights through a single dashboard.
 
 ---
 
@@ -18,13 +16,15 @@ No guesswork. No "AI magic." Every detection method traces back to a published p
 
 > 📹 [Watch the demo →](https://youtu.be/xrBMzgs4mno)
 
-## 📄 Project Report
+## 📄 Project Documentation
 
->> 📋 [Read the full project report →](documentation/PROJECT_REPORT.md)
->>📈 [Read the development progress report →](documentation/PROGRESS_REPORT.md)
->>🔒 [Read the ESP32 snapshot security analysis →](documentation/aikido_Scan)
->>🔒 [Read the ESP32 snapshot security analysis →](documentation/aikido_Scan2)
----
+- 📋 [Project Report](documentation/PROJECT_REPORT.md)
+- 📈 [Development Progress Report](documentation/PROGRESS_REPORT.md)
+
+## 🔒 Security Analysis (Aikido)
+
+- 🔒 [ESP32 Snapshot Security Analysis – Report 1](documentation/aikido_Scan.md)
+- 🔒 [ESP32 Snapshot Security Analysis – Report 2](documentation/aikido_Scan2.md)
 
 ## 🐱 Theme Relevance — "Coding for Kitties"
 
