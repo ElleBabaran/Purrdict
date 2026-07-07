@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDbAvailable, query } from "@/lib/db";
-import jwt from "jsonwebtoken";
+import { getUserId } from "@/lib/auth";
 
 /**
  * POST /api/esp32/snapshot
@@ -27,19 +27,6 @@ import jwt from "jsonwebtoken";
  *   memory is empty (e.g. a fresh serverless instance that hasn't
  *   received a push yet since cold start).
  */
-
-const JWT_SECRET = process.env.JWT_SECRET || "purrdict-dev-secret-change-in-prod";
-
-function getUserId(request: NextRequest): string | null {
-  const auth = request.headers.get("authorization");
-  if (!auth?.startsWith("Bearer ")) return null;
-  try {
-    const decoded = jwt.verify(auth.slice(7), JWT_SECRET) as { userId: string };
-    return decoded.userId;
-  } catch {
-    return null;
-  }
-}
 
 // In-memory cache — primary source of truth for the live feed. Always
 // used when populated, regardless of whether a DB is configured.
