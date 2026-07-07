@@ -39,10 +39,21 @@
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION — CHANGE THESE
 // ═══════════════════════════════════════════════════════════
-const char* WIFI_SSID     = "WIFI MOTO";
-const char* WIFI_PASS     = "Aronvince@123";
+const char* WIFI_SSID     = "YOUR_WIFI_SSID";
+const char* WIFI_PASS     = "YOUR_WIFI_PASSWORD";
 const char* SERVER_URL    = "https://purrdict.vercel.app/api/esp32/data";
 const char* DEVICE_ID     = "ESP32CAM";
+// Returned by POST /api/esp32/pair when this device is paired from the
+// Setup wizard in the app. /api/esp32/data now requires it on every
+// request (previously this endpoint accepted data with no credential at
+// all) — set this to the value shown after pairing before flashing.
+const char* DEVICE_SECRET = "SET_ME_AFTER_PAIRING";
+// Shared secret required on every GET /stream request (as query param
+// ?key=...). Anyone on the same WiFi/LAN as this device could otherwise
+// open the MJPEG stream directly with no credential at all — set this to
+// a long random value and configure the same value in the app's stream
+// proxy call. Must not be left as the placeholder in a real deployment.
+const char* STREAM_KEY    = "SET_ME_TO_A_RANDOM_VALUE";
 
 // Sensor config
 #define ENABLE_DHT        false   // Set true if DHT11 connected to GPIO 12
@@ -208,7 +219,8 @@ void setup() {
   startCameraServer();
   Serial.print("\nStream ready: http://");
   Serial.print(WiFi.localIP());
-  Serial.println(":81/stream");
+  Serial.print(":81/stream?key=");
+  Serial.println(STREAM_KEY);
 
   Serial.printf("Sensor POST interval: %d seconds\n", SEND_INTERVAL_MS / 1000);
   Serial.println("=== Ready ===\n");
@@ -289,6 +301,7 @@ void sendSensorData() {
   HTTPClient http;
   http.begin(SERVER_URL);
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Secret", DEVICE_SECRET);
   http.setTimeout(HTTP_TIMEOUT_MS);  // Short! Don't block stream
 
   // Build JSON payload
@@ -361,14 +374,45 @@ static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %
 
 httpd_handle_t stream_httpd = NULL;
 
+// Access control fix: this handler previously served the MJPEG stream to
+// any client that could reach the device on the network, with no
+// credential check, and sent "Access-Control-Allow-Origin: *" on top of
+// that — meaning any website open in a browser on the same LAN/WiFi as
+// the camera could read the live feed cross-origin via JS, not just a
+// direct browser navigation. A required `key` query parameter (compared
+// against STREAM_KEY) is now checked before any frame is served, and the
+// wildcard CORS header is removed entirely: this stream is consumed via
+// the app's server-side proxy (a plain HTTP client, not a browser
+// fetch()), which is never subject to CORS in the first place, so no
+// Access-Control-Allow-Origin header is needed for that use case.
 static esp_err_t stream_handler(httpd_req_t *req) {
   camera_fb_t *fb = NULL;
   esp_err_t res = ESP_OK;
   char part_buf[64];
 
+  bool authorized = false;
+  char query[128];
+  size_t query_len = httpd_req_get_url_query_len(req) + 1;
+  if (query_len > 1 && query_len <= sizeof(query)) {
+    if (httpd_req_get_url_query_str(req, query, query_len) == ESP_OK) {
+      char key_val[64];
+      if (httpd_query_key_value(query, "key", key_val, sizeof(key_val)) == ESP_OK) {
+        if (strcmp(key_val, STREAM_KEY) == 0) {
+          authorized = true;
+        }
+      }
+    }
+  }
+
+  if (!authorized) {
+    Serial.println("[Stream] Rejected: missing or invalid ?key=");
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_send(req, "Unauthorized", HTTPD_RESP_USE_STRLEN);
+    return ESP_FAIL;
+  }
+
   res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
   if (res != ESP_OK) return res;
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
   while (true) {
     fb = esp_camera_fb_get();

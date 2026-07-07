@@ -46,8 +46,8 @@
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION — CHANGE THESE
 // ═══════════════════════════════════════════════════════════
-const char* ssid     = "WIFI MOTO";
-const char* password = "Aronvince@123";
+const char* ssid     = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
 
 // Flip this before flashing depending on what you're testing against.
 // true  -> local dev server (PC running `npm run dev`, same WiFi as ESP32)

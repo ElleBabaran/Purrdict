@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { query, queryOne, isDbAvailable } from "@/lib/db";
-
-const JWT_SECRET = process.env.JWT_SECRET || "purrdict-dev-secret-change-in-prod";
+import { signUserToken } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,11 +14,7 @@ export async function POST(request: NextRequest) {
 
     // Demo mode — no DB configured
     if (!isDbAvailable()) {
-      const token = jwt.sign(
-        { userId: "demo-" + Date.now(), email: email.toLowerCase() },
-        JWT_SECRET,
-        { expiresIn: "7d" }
-      );
+      const token = signUserToken({ userId: "demo-" + Date.now(), email: email.toLowerCase() });
       return NextResponse.json({
         user: {
           id: "demo-" + Date.now(),
@@ -66,11 +60,7 @@ export async function POST(request: NextRequest) {
     }>("SELECT * FROM cats WHERE owner_id = $1 ORDER BY created_at", [user.id]);
 
     // Generate JWT
-    const token = jwt.sign(
-      { userId: user.id, email: user.email },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    const token = signUserToken({ userId: user.id, email: user.email });
 
     return NextResponse.json({
       user: {

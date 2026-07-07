@@ -1,7 +1,57 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getClient, createAuthorizationCode } from "@/lib/oauth";
-import { queryOne } from "@/lib/db";
+import {
+  getClient,
+  createAuthorizationCode,
+  isRedirectUriRegistered,
+  isPkceRequired,
+  OAuthClient,
+} from "@/lib/oauth";
+import { queryOne, isDbAvailable } from "@/lib/db";
 import bcrypt from "bcryptjs";
+
+const ALLOWED_SCOPES = new Set(["read", "write", "offline_access"]);
+
+/**
+ * Resolves and validates the OAuth client for an authorization request.
+ *
+ * Fails closed: if a real database is configured, the client must exist
+ * and the requested redirect_uri must be one of its registered URIs.
+ * Previously, any lookup failure (client not found, or getClient()
+ * throwing) fell through to an "Unknown App" placeholder that skipped
+ * redirect_uri validation entirely — an attacker could supply a
+ * nonexistent client_id together with any redirect_uri they controlled,
+ * and the server would still render the login form and (had the later
+ * INSERT not been blocked by a foreign key) hand back an authorization
+ * code redeemable at that attacker-controlled URI. In Demo Mode (no
+ * DATABASE_URL) there is no client registry to check against and no
+ * persistent token issued, so that path is left permissive.
+ */
+async function resolveClientOrError(
+  clientId: string,
+  redirectUri: string
+): Promise<{ client: OAuthClient | null; error: string | null }> {
+  if (!isDbAvailable()) {
+    return { client: null, error: null };
+  }
+
+  let client: OAuthClient | null;
+  try {
+    client = await getClient(clientId);
+  } catch (err) {
+    console.error("OAuth getClient error:", err);
+    return { client: null, error: "Unable to validate client. Please try again." };
+  }
+
+  if (!client) {
+    return { client: null, error: "Unknown client_id. This app must register first." };
+  }
+
+  if (!isRedirectUriRegistered(client, redirectUri)) {
+    return { client: null, error: "redirect_uri does not match any URI registered for this client." };
+  }
+
+  return { client, error: null };
+}
 
 /**
  * OAuth 2.0 Authorization Endpoint
@@ -146,10 +196,30 @@ function formatScopes(scope: string): string {
     write: "✏️ Create and update entries",
     offline_access: "🔄 Stay connected when you're away",
   };
+  // XSS fix: `scope` comes straight from the request's query string /
+  // form body. Any token not in `descriptions` — i.e. anything an
+  // attacker puts in the `scope` param, like ?scope=<script>...</script> —
+  // was previously interpolated into the page unescaped and would execute
+  // in the victim's browser right on the login/consent page. Unknown
+  // scopes are now HTML-escaped, and the value is additionally restricted
+  // to a known allowlist before this function is ever called (see
+  // sanitizeScope), so this is defense in depth rather than the only guard.
   return scope
     .split(" ")
-    .map((s) => descriptions[s] || s)
+    .filter(Boolean)
+    .map((s) => descriptions[s] || escapeHtml(s))
     .join("<br/>");
+}
+
+/**
+ * Restricts the requested scope string to the server's known scopes.
+ * Unknown/unexpected tokens are dropped rather than rejected outright so
+ * a client requesting a slightly different scope set still gets a
+ * usable (if reduced) consent screen instead of a hard error.
+ */
+function sanitizeScope(scope: string): string {
+  const allowed = scope.split(" ").filter((s) => ALLOWED_SCOPES.has(s));
+  return allowed.length > 0 ? allowed.join(" ") : "read";
 }
 
 // ── GET: Show consent page ──
@@ -161,7 +231,7 @@ export async function GET(request: NextRequest) {
     const clientId = params.get("client_id");
     const redirectUri = params.get("redirect_uri");
     const responseType = params.get("response_type");
-    const scope = params.get("scope") || "read write";
+    const scope = sanitizeScope(params.get("scope") || "read write");
     const state = params.get("state") || undefined;
     const codeChallenge = params.get("code_challenge") || undefined;
     const codeChallengeMethod = params.get("code_challenge_method") || "S256";
@@ -173,42 +243,28 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Validate client (gracefully handle missing table)
-    let client = null;
-    try {
-      client = await getClient(clientId);
-    } catch (err) {
-      console.error("OAuth getClient error (table may not exist):", err);
+    // Every authorization_code request must carry a PKCE S256 challenge
+    // (see isPkceRequired in src/lib/oauth.ts) — reject before showing the
+    // login form so credentials are never entered against a flow that
+    // can't be completed anyway.
+    if (isPkceRequired() && (!codeChallenge || codeChallengeMethod !== "S256")) {
+      return new NextResponse(
+        "This authorization request is missing a PKCE code_challenge (S256). The client must generate a code_verifier/code_challenge pair.",
+        { status: 400, headers: { "Content-Type": "text/plain" } }
+      );
     }
 
-    let clientName = "Unknown App";
-    if (client) {
-      // Validate redirect_uri matches registered URIs
-      const uriMatch = client.redirect_uris.some((uri) => {
-        // For localhost URIs, ignore port (per RFC 8252)
-        try {
-          const registered = new URL(uri);
-          const requested = new URL(redirectUri);
-          if (
-            (registered.hostname === "localhost" || registered.hostname === "127.0.0.1") &&
-            (requested.hostname === "localhost" || requested.hostname === "127.0.0.1")
-          ) {
-            return registered.pathname === requested.pathname;
-          }
-          return uri === redirectUri;
-        } catch {
-          return uri === redirectUri;
-        }
+    // Validate client + redirect_uri together (fails closed — see
+    // resolveClientOrError doc comment above).
+    const { client, error: clientError } = await resolveClientOrError(clientId, redirectUri);
+    if (clientError) {
+      return new NextResponse(clientError, {
+        status: 400,
+        headers: { "Content-Type": "text/plain" },
       });
-
-      if (!uriMatch) {
-        return new NextResponse("Invalid redirect_uri for this client.", {
-          status: 400,
-          headers: { "Content-Type": "text/plain" },
-        });
-      }
-      clientName = client.client_name || "External App";
     }
+
+    const clientName = (isDbAvailable() ? client?.client_name : null) || "Unknown App";
 
     const html = htmlPage({
       clientName,
@@ -226,16 +282,16 @@ export async function GET(request: NextRequest) {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   } catch (error) {
+    // Information exposure fix: the previous version included the raw
+    // error message and full stack trace in the response body. Stack
+    // traces reveal file paths, dependency versions, and internal
+    // control flow — useful to an attacker probing this endpoint, not to
+    // a legitimate OAuth client. Full detail still goes to server logs.
     console.error("OAuth authorize GET error:", error);
-    const errMsg = error instanceof Error ? error.message : String(error);
-    const errStack = error instanceof Error ? error.stack : "";
-    return new NextResponse(
-      `Internal server error during authorization.\n\nDebug: ${errMsg}\n${errStack}`,
-      {
-        status: 500,
-        headers: { "Content-Type": "text/plain" },
-      }
-    );
+    return new NextResponse("Internal server error during authorization.", {
+      status: 500,
+      headers: { "Content-Type": "text/plain" },
+    });
   }
 }
 
@@ -250,10 +306,41 @@ export async function POST(request: NextRequest) {
     const redirectUri = formData.get("redirect_uri") as string;
     const state = formData.get("state") as string;
     const codeChallenge = formData.get("code_challenge") as string;
-    const codeChallengeMethod = formData.get("code_challenge_method") as string;
-    const scope = formData.get("scope") as string;
+    const codeChallengeMethod = (formData.get("code_challenge_method") as string) || "S256";
+    const scope = sanitizeScope((formData.get("scope") as string) || "read write");
     const email = formData.get("email") as string;
     const password = formData.get("password") as string;
+
+    if (!clientId || !redirectUri || !email || !password) {
+      return new NextResponse("Missing required form fields.", {
+        status: 400,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+
+    // OAuth/SSO misconfiguration fix: the client and its redirect_uri
+    // were never re-validated on POST — only the GET handler checked
+    // them, and only when a client happened to be found. That meant an
+    // attacker could skip the GET step entirely and POST straight to
+    // this endpoint with client_id="" (or any unregistered value) and an
+    // attacker-controlled redirect_uri; the server would still
+    // authenticate the victim's password and hand back a real
+    // authorization code redirected to that attacker URI. Re-checking
+    // here closes that gap regardless of how the POST was reached.
+    const { client, error: clientError } = await resolveClientOrError(clientId, redirectUri);
+    if (clientError) {
+      return new NextResponse(clientError, {
+        status: 400,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+
+    if (isPkceRequired() && (!codeChallenge || codeChallengeMethod !== "S256")) {
+      return new NextResponse(
+        "This authorization request is missing a PKCE code_challenge (S256).",
+        { status: 400, headers: { "Content-Type": "text/plain" } }
+      );
+    }
 
     // User denied
     if (action === "deny") {
@@ -275,13 +362,9 @@ export async function POST(request: NextRequest) {
     ]);
 
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-      // Re-render with error
-      let client = null;
-      try {
-        client = await getClient(clientId);
-      } catch {
-        // table may not exist
-      }
+      // Re-render with error. client is guaranteed non-null here when a
+      // real DB is configured (resolveClientOrError already validated
+      // it); in Demo Mode it's null and we fall back to a generic name.
       const html = htmlPage({
         clientName: client?.client_name || "External App",
         scope,
@@ -318,14 +401,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(callbackUrl.toString(), 302);
   } catch (error) {
     console.error("OAuth authorize POST error:", error);
-    const errMsg = error instanceof Error ? error.message : String(error);
-    const errStack = error instanceof Error ? error.stack : "";
-    return new NextResponse(
-      `Internal server error during authorization.\n\nDebug: ${errMsg}\n${errStack}`,
-      {
-        status: 500,
-        headers: { "Content-Type": "text/plain" },
-      }
-    );
+    return new NextResponse("Internal server error during authorization.", {
+      status: 500,
+      headers: { "Content-Type": "text/plain" },
+    });
   }
 }

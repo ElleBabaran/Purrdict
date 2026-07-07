@@ -1,17 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isDbAvailable, query } from "@/lib/db";
+import { isDbAvailable, query, queryOne } from "@/lib/db";
 import { deriveEmotionScores } from "@/lib/emotion";
+import { timingSafeStringEqual } from "@/lib/oauth";
+import { getUserId } from "@/lib/auth";
 
 /**
  * POST /api/esp32/data
- * 
- * Endpoint for ESP32 devices to POST raw sensor data.
- * No PIN system — the ESP32 posts directly. The server finds the
- * first available device/cat or creates a record on-the-fly.
- * 
+ *
+ * Endpoint for a *paired* ESP32 device to POST raw sensor data.
+ * Header: X-Device-Secret: <secret returned by POST /api/esp32/pair>
+ *
+ * Improper Access Control / Missing Authentication fix: this endpoint
+ * previously accepted data from anyone with no credential — a missing
+ * or unrecognized deviceId silently fell through to "grab the first
+ * device in the system" and, if none existed yet, auto-created a brand
+ * new device and linked it to "the first cat in the system" found by a
+ * bare `SELECT id FROM cats LIMIT 1`. That meant any unauthenticated
+ * request could inject fabricated behavior/emotion/sensor rows for
+ * someone else's cat, and in a multi-tenant deployment could silently
+ * attach a stranger's hardware to whichever cat happened to be first in
+ * the table. A device must now be explicitly paired first
+ * (POST /api/esp32/pair, which requires the owner's JWT) and present
+ * the secret issued at pairing time on every request here.
+ *
  * Body (JSON):
  * {
- *   deviceId?: string,        // optional: MAC address or custom ID
+ *   deviceId: string,         // required: the esp32_devices.id from pairing
  *   motion: boolean,          // motion detected in camera frame
  *   motionIntensity: number,  // 0-100 how much motion
  *   distance?: number,        // cm, from ultrasonic sensor (optional)
@@ -42,46 +56,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, mode: "demo" });
     }
 
-    // Find the first registered device (since no PIN system, just grab the first one)
-    // If clientDeviceId (MAC address) is provided, try to match it
-    let device;
-    if (clientDeviceId) {
-      const devices = await query<{ id: string; cat_id: string | null }>(
-        "SELECT id, cat_id FROM esp32_devices WHERE id::text = $1 OR pin = $1 LIMIT 1",
-        [clientDeviceId]
+    const deviceSecret = request.headers.get("x-device-secret");
+    if (!clientDeviceId || !deviceSecret) {
+      return NextResponse.json(
+        { error: "Missing deviceId or X-Device-Secret header. Pair the device first via /api/esp32/pair." },
+        { status: 401 }
       );
-      device = devices[0];
-    }
-    
-    // Fallback: just get the first device in the system
-    if (!device) {
-      const devices = await query<{ id: string; cat_id: string | null }>(
-        "SELECT id, cat_id FROM esp32_devices ORDER BY last_seen DESC NULLS LAST LIMIT 1",
-        []
-      );
-      device = devices[0];
     }
 
-    // If no device exists at all, create one on the fly
-    if (!device) {
-      const newDevices = await query<{ id: string; cat_id: string | null }>(
-        `INSERT INTO esp32_devices (pin, firmware_version, is_online, last_seen)
-         VALUES ($1, '1.0.0', true, now())
-         RETURNING id, cat_id`,
-        [clientDeviceId || "ESP32C"]
-      );
-      device = newDevices[0];
+    const device = await queryOne<{ id: string; cat_id: string | null; device_secret: string | null }>(
+      "SELECT id, cat_id, device_secret FROM esp32_devices WHERE id::text = $1 OR pin = $1 LIMIT 1",
+      [clientDeviceId]
+    );
 
-      // Also try to link it to the first cat that exists
-      const cats = await query<{ id: string }>("SELECT id FROM cats LIMIT 1", []);
-      if (cats[0] && device) {
-        await query("UPDATE esp32_devices SET cat_id = $1 WHERE id = $2", [cats[0].id, device.id]);
-        device.cat_id = cats[0].id;
-      }
-    }
-
-    if (!device) {
-      return NextResponse.json({ error: "No device or cat configured" }, { status: 500 });
+    if (!device || !device.device_secret || !timingSafeStringEqual(deviceSecret, device.device_secret)) {
+      return NextResponse.json({ error: "Invalid device credentials." }, { status: 401 });
     }
 
     const deviceId = device.id;
@@ -176,57 +165,87 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/esp32/data?catId=xxx&limit=50
- * 
+ *
  * Fetches recent sensor readings and behavior events for the dashboard.
+ *
+ * Improper Access Control fix: this previously had no authentication and
+ * no ownership check at all — it queried `sensor_readings`,
+ * `behavior_events`, `emotion_assessments`, and `esp32_devices` globally
+ * (just "the most recent rows across the whole table"), so any caller,
+ * logged in or not, could read the single most-recently-active cat's
+ * behavior/emotion/device data regardless of who owned it. `catId` is
+ * now required and every query is scoped to a cat verified to belong to
+ * the authenticated user.
  */
 export async function GET(request: NextRequest) {
+  const userId = getUserId(request);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const catId = searchParams.get("catId");
-    const limit = parseInt(searchParams.get("limit") || "20", 10);
+    const limit = Math.min(parseInt(searchParams.get("limit") || "20", 10) || 20, 100);
+
+    if (!catId) {
+      return NextResponse.json({ error: "catId is required." }, { status: 400 });
+    }
 
     if (!isDbAvailable()) {
       return NextResponse.json({ readings: [], behaviors: [], mode: "demo" });
     }
 
-    // Get latest sensor readings
+    const cat = await queryOne<{ id: string }>(
+      "SELECT id FROM cats WHERE id = $1 AND owner_id = $2",
+      [catId, userId]
+    );
+    if (!cat) {
+      return NextResponse.json({ error: "Cat not found for this account." }, { status: 404 });
+    }
+
+    // Get latest sensor readings for this cat
     const readings = await query(
       `SELECT motion, motion_intensity, distance_cm, temperature_c, humidity_pct, 
               free_heap, uptime_secs, rssi, recorded_at
        FROM sensor_readings 
+       WHERE cat_id = $1
        ORDER BY recorded_at DESC 
-       LIMIT $1`,
-      [limit]
+       LIMIT $2`,
+      [catId, limit]
     );
 
-    // Get latest behavior events
+    // Get latest behavior events for this cat
     const behaviors = await query(
       `SELECT behavior, confidence, emoji, description, research_ref, odba, recorded_at
        FROM behavior_events 
+       WHERE cat_id = $1
        ORDER BY recorded_at DESC 
-       LIMIT $1`,
-      [limit]
+       LIMIT $2`,
+      [catId, limit]
     );
 
-    // Get the most recent emotion assessment (DB-backed, written alongside
-    // each behavior event — see POST handler above)
+    // Get the most recent emotion assessment for this cat (DB-backed,
+    // written alongside each behavior event — see POST handler above)
     const emotions = await query(
       `SELECT fear_score, anger_score, joy_score, contentment_score, interest_score,
               body_posture, tail_position, ear_orientation, eye_state, vocalization,
               research_ref, recorded_at
        FROM emotion_assessments
+       WHERE cat_id = $1
        ORDER BY recorded_at DESC
        LIMIT 1`,
-      []
+      [catId]
     );
 
-    // Get device status
+    // Get status for the device(s) linked to this cat
     const devices = await query(
       `SELECT id, pin, is_online, last_seen, battery_pct, ip_address
        FROM esp32_devices 
+       WHERE cat_id = $1
        ORDER BY last_seen DESC NULLS LAST
        LIMIT 1`,
-      []
+      [catId]
     );
 
     return NextResponse.json({

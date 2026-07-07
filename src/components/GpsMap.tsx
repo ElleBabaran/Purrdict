@@ -34,12 +34,27 @@ export default function GpsMap({
 
   useEffect(() => {
     // Add Leaflet CSS via link tag
+    // Subresource Integrity fix: these tags previously loaded Leaflet
+    // from the unpkg CDN with no `integrity`/`crossorigin` attributes —
+    // if that CDN response were ever tampered with (compromised CDN,
+    // on-path attacker, DNS spoofing), the browser would execute
+    // whatever script came back with no verification, running arbitrary
+    // code in the same origin as the dashboard (and with access to the
+    // JWT in localStorage). The hashes below pin this to the exact
+    // known-good 1.9.4 release, taken from Leaflet's own download page
+    // (https://leafletjs.com/download.html). `crossorigin="anonymous"`
+    // is required for the browser to actually check integrity on a
+    // cross-origin resource. If the Leaflet version is ever bumped,
+    // update these to the new hashes published on that same page.
     const id = "leaflet-css";
     if (!document.getElementById(id)) {
       const link = document.createElement("link");
       link.id = id;
       link.rel = "stylesheet";
       link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      // Official hash published at https://leafletjs.com/download.html
+      link.integrity = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";
+      link.crossOrigin = "anonymous";
       document.head.appendChild(link);
     }
 
@@ -49,6 +64,9 @@ export default function GpsMap({
       const script = document.createElement("script");
       script.id = scriptId;
       script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      // Official hash published at https://leafletjs.com/download.html
+      script.integrity = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=";
+      script.crossOrigin = "anonymous";
       script.onload = () => setReady(true);
       document.head.appendChild(script);
     } else {

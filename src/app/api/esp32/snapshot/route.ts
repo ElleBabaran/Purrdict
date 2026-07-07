@@ -1,56 +1,70 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isDbAvailable, query } from "@/lib/db";
+import { isDbAvailable, query, queryOne } from "@/lib/db";
+import { timingSafeStringEqual } from "@/lib/oauth";
+import { getUserId } from "@/lib/auth";
 
 /**
  * POST /api/esp32/snapshot
  * ESP32 (Push Mode firmware, esp32/PurrDictCam_Push) uploads a JPEG
  * snapshot every ~500ms as a binary body.
+ * Header: X-Device-Secret: <secret returned by POST /api/esp32/pair>
  *
- * GET /api/esp32/snapshot
- * Returns the latest JPEG snapshot as an image.
+ * GET /api/esp32/snapshot?catId=xxx
+ * Returns the latest JPEG snapshot for the authenticated user's cat.
  *
- * Performance note: the database is a remote Neon Postgres instance
- * (often a different region/continent from the dev machine). Awaiting a
- * DB round-trip on every single POST/GET — happening every ~500-800ms —
- * added several hundred ms of latency per request and caused the ESP32's
- * requests to pile up/timeout under any network jitter, which showed up
- * as a laggy/stalling video feed.
+ * Improper Access Control fix: this endpoint previously accepted
+ * uploads with no credential at all, and served the single most-recent
+ * snapshot to *any* caller out of one global in-memory variable shared
+ * across every device and every user. In a multi-tenant deployment that
+ * meant anyone's dashboard could see anyone else's camera feed (or have
+ * it clobbered by another user's device), regardless of which cat/device
+ * they'd actually paired. The cache is now keyed per device_id, POST
+ * requires the device secret issued at pairing, and GET requires the
+ * caller's JWT plus proof the requested cat belongs to them.
  *
- * Fix: an in-memory cache is now the source of truth for the hot path.
- * - POST responds immediately after buffering in memory; the DB write
- *   happens in the background (fire-and-forget) purely for durability
- *   across serverless cold starts on Vercel — it no longer blocks the
- *   response to the ESP32.
- * - GET serves straight from memory. It only falls back to the DB if
- *   memory is empty (e.g. a fresh serverless instance that hasn't
- *   received a push yet since cold start).
+ * Performance note (unchanged from before): the database is a remote
+ * Neon Postgres instance, so a per-device in-memory cache is still the
+ * source of truth for the hot path — POST responds immediately after
+ * buffering, DB persistence happens in the background fire-and-forget
+ * purely for surviving Vercel cold starts.
  */
 
-// In-memory cache — primary source of truth for the live feed. Always
-// used when populated, regardless of whether a DB is configured.
-let latestSnapshot: Buffer | null = null;
-let latestSnapshotTime = 0;
-let latestDeviceId: string | null = null;
-
-function findDeviceId(clientDeviceId?: string) {
-  if (clientDeviceId) {
-    return query<{ id: string }>(
-      "SELECT id FROM esp32_devices WHERE id::text = $1 OR pin = $1 LIMIT 1",
-      [clientDeviceId]
-    );
-  }
-  return query<{ id: string }>(
-    "SELECT id FROM esp32_devices ORDER BY last_seen DESC NULLS LAST LIMIT 1",
-    []
-  );
+interface SnapshotCacheEntry {
+  buffer: Buffer;
+  time: number;
 }
+
+// In-memory cache keyed by esp32_devices.id — each device's frames are
+// independent of every other device's.
+const snapshotCache = new Map<string, SnapshotCacheEntry>();
 
 export async function POST(request: NextRequest) {
   try {
-    const contentType = request.headers.get("content-type") || "";
     const { searchParams } = new URL(request.url);
-    const clientDeviceId = searchParams.get("deviceId") || undefined;
+    const clientDeviceId = searchParams.get("deviceId");
+    const deviceSecret = request.headers.get("x-device-secret");
 
+    if (!isDbAvailable()) {
+      // Demo mode — nothing to authenticate against; just acknowledge.
+      return NextResponse.json({ ok: true, mode: "demo" });
+    }
+
+    if (!clientDeviceId || !deviceSecret) {
+      return NextResponse.json(
+        { error: "Missing deviceId or X-Device-Secret header. Pair the device first via /api/esp32/pair." },
+        { status: 401 }
+      );
+    }
+
+    const device = await queryOne<{ id: string; device_secret: string | null }>(
+      "SELECT id, device_secret FROM esp32_devices WHERE id::text = $1 OR pin = $1 LIMIT 1",
+      [clientDeviceId]
+    );
+    if (!device || !device.device_secret || !timingSafeStringEqual(deviceSecret, device.device_secret)) {
+      return NextResponse.json({ error: "Invalid device credentials." }, { status: 401 });
+    }
+
+    const contentType = request.headers.get("content-type") || "";
     let imageBuffer: Buffer;
 
     if (contentType.includes("application/json")) {
@@ -71,19 +85,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Image too small" }, { status: 400 });
     }
 
-    // Hot path: update the in-memory cache immediately and respond to the
-    // ESP32 right away. This is what keeps frame delivery fast/real-time —
-    // nothing here waits on the database.
-    latestSnapshot = imageBuffer;
-    latestSnapshotTime = Date.now();
-    latestDeviceId = clientDeviceId || latestDeviceId;
+    // Hot path: update this device's in-memory cache entry immediately
+    // and respond to the ESP32 right away — nothing here waits on the DB.
+    snapshotCache.set(device.id, { buffer: imageBuffer, time: Date.now() });
 
     // Background persistence (fire-and-forget): only matters for surviving
     // a Vercel cold start between pushes. Errors here must never affect
     // the response already sent to the ESP32.
-    if (isDbAvailable()) {
-      persistSnapshotInBackground(imageBuffer, clientDeviceId);
-    }
+    persistSnapshotInBackground(imageBuffer, device.id);
 
     return NextResponse.json({ ok: true, size: imageBuffer.length });
   } catch (error) {
@@ -92,25 +101,9 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function persistSnapshotInBackground(imageBuffer: Buffer, clientDeviceId?: string) {
+async function persistSnapshotInBackground(imageBuffer: Buffer, deviceId: string) {
   try {
-    let devices = await findDeviceId(clientDeviceId);
-    if (devices.length === 0 && clientDeviceId) {
-      devices = await findDeviceId(undefined);
-    }
-    if (devices.length === 0) {
-      const created = await query<{ id: string }>(
-        `INSERT INTO esp32_devices (pin, firmware_version, is_online, last_seen)
-         VALUES ($1, '1.0.0-push', true, now())
-         RETURNING id`,
-        [clientDeviceId || "ESP32PUSH"]
-      );
-      devices = created;
-    }
-
-    const deviceId = devices[0].id;
     const base64Image = imageBuffer.toString("base64");
-
     await query(
       `UPDATE esp32_devices
        SET latest_snapshot = $1, latest_snapshot_at = now(), last_seen = now(), is_online = true
@@ -123,35 +116,60 @@ async function persistSnapshotInBackground(imageBuffer: Buffer, clientDeviceId?:
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const userId = getUserId(request);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   try {
-    // Hot path: serve straight from memory whenever we have it.
-    if (latestSnapshot) {
-      return respondWithSnapshot(latestSnapshot, latestSnapshotTime);
+    const { searchParams } = new URL(request.url);
+    const catId = searchParams.get("catId");
+    if (!catId) {
+      return NextResponse.json({ error: "catId is required." }, { status: 400 });
+    }
+
+    if (!isDbAvailable()) {
+      return respondWithSnapshot(null, 0);
+    }
+
+    const cat = await queryOne<{ id: string }>(
+      "SELECT id FROM cats WHERE id = $1 AND owner_id = $2",
+      [catId, userId]
+    );
+    if (!cat) {
+      return NextResponse.json({ error: "Cat not found for this account." }, { status: 404 });
+    }
+
+    const device = await queryOne<{ id: string; latest_snapshot: string | null; latest_snapshot_at: string | null }>(
+      `SELECT id, latest_snapshot, latest_snapshot_at
+       FROM esp32_devices
+       WHERE cat_id = $1
+       ORDER BY last_seen DESC NULLS LAST
+       LIMIT 1`,
+      [catId]
+    );
+
+    if (!device) {
+      return respondWithSnapshot(null, 0);
+    }
+
+    // Hot path: serve straight from this device's in-memory cache entry.
+    const cached = snapshotCache.get(device.id);
+    if (cached) {
+      return respondWithSnapshot(cached.buffer, cached.time);
     }
 
     // Memory is empty (fresh serverless cold start) — fall back to the DB
     // so a Vercel deployment can still recover the last known frame.
-    if (isDbAvailable()) {
-      const device = await query<{ latest_snapshot: string | null; latest_snapshot_at: string | null }>(
-        `SELECT latest_snapshot, latest_snapshot_at
-         FROM esp32_devices
-         WHERE latest_snapshot IS NOT NULL
-         ORDER BY latest_snapshot_at DESC NULLS LAST
-         LIMIT 1`,
-        []
-      );
-
-      if (device.length > 0 && device[0].latest_snapshot) {
-        const buffer = Buffer.from(device[0].latest_snapshot, "base64");
-        const snapshotTime = device[0].latest_snapshot_at
-          ? new Date(device[0].latest_snapshot_at).getTime()
-          : 0;
-        // Warm the in-memory cache so subsequent polls skip the DB entirely.
-        latestSnapshot = buffer;
-        latestSnapshotTime = snapshotTime;
-        return respondWithSnapshot(buffer, snapshotTime);
-      }
+    if (device.latest_snapshot) {
+      const buffer = Buffer.from(device.latest_snapshot, "base64");
+      const snapshotTime = device.latest_snapshot_at
+        ? new Date(device.latest_snapshot_at).getTime()
+        : 0;
+      // Warm the in-memory cache so subsequent polls skip the DB entirely.
+      snapshotCache.set(device.id, { buffer, time: snapshotTime });
+      return respondWithSnapshot(buffer, snapshotTime);
     }
 
     return respondWithSnapshot(null, 0);
@@ -182,13 +200,17 @@ function respondWithSnapshot(buffer: Buffer | null, snapshotTime: number) {
     });
   }
 
+  // No "Access-Control-Allow-Origin: *" here — this response now carries
+  // a specific user's cat snapshot and is fetched same-origin from the
+  // dashboard with a Bearer token, so a wildcard CORS header would let
+  // any third-party site read an authenticated user's private camera
+  // frame if it were ever fetched cross-origin with credentials.
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "image/jpeg",
       "Cache-Control": "no-cache, no-store, must-revalidate",
       "X-Snapshot-Time": snapshotTime.toString(),
       "X-Snapshot-Age": `${Math.round((Date.now() - snapshotTime) / 1000)}s`,
-      "Access-Control-Allow-Origin": "*",
     },
   });
 }

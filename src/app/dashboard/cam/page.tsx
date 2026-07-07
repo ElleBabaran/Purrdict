@@ -42,7 +42,16 @@ export default function CamPage() {
 
     async function poll() {
       try {
-        const res = await fetch(`/api/esp32/snapshot?_t=${Date.now()}`, { cache: "no-store" });
+        const catId = user?.cats[0]?.id;
+        const token = localStorage.getItem("purrdict_token");
+        if (!catId || !token) {
+          if (!cancelled) setStatus("connecting");
+          return;
+        }
+        const res = await fetch(
+          `/api/esp32/snapshot?catId=${encodeURIComponent(catId)}&_t=${Date.now()}`,
+          { cache: "no-store", headers: { Authorization: `Bearer ${token}` } }
+        );
         if (cancelled) return;
 
         const ageHeader = res.headers.get("X-Snapshot-Age");
@@ -73,7 +82,7 @@ export default function CamPage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [user]);
 
   // If the last successful frame is getting old (device likely stopped
   // pushing), flip to "stale" so the UI reflects it without waiting for

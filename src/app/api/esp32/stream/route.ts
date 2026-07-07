@@ -1,19 +1,41 @@
 import { NextRequest } from "next/server";
 import http from "http";
+import { getUserId } from "@/lib/auth";
 
 /**
- * GET /api/esp32/stream?ip=192.168.1.x&port=81
+ * GET /api/esp32/stream?ip=192.168.1.x&port=81&key=<esp32 STREAM_KEY>
  * 
  * Proxies the MJPEG stream from a local ESP32-CAM to the browser.
  * This avoids mixed-content (HTTPS→HTTP) blocks and CORS issues.
  * 
  * The ESP32-CAM serves MJPEG at http://<ip>:81/stream by default
  * (CameraWebServer Arduino example).
+ *
+ * Missing Authentication fix: this endpoint previously had no auth check
+ * at all — combined with the private-IP-only guard below (kept
+ * unchanged; it's an intentional SSRF guard per tech.md, not the bug),
+ * *any* unauthenticated visitor to this Next.js deployment could still
+ * proxy a request to any private/local IP reachable from the server —
+ * including the server's own loopback address — and get the response
+ * streamed back to them. A valid caller JWT is now required, same as
+ * every other authenticated route in this app. The device's own stream
+ * key (`?key=`, checked by the firmware itself — see
+ * esp32/CameraWebServer_PurrDict) is forwarded to the ESP32 so the
+ * firmware's own access control is satisfied too.
  */
 export async function GET(request: NextRequest) {
+  const userId = getUserId(request);
+  if (!userId) {
+    return new Response(JSON.stringify({ error: "Unauthorized." }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const { searchParams } = new URL(request.url);
   const ip = searchParams.get("ip");
   const port = searchParams.get("port") || "81";
+  const streamKey = searchParams.get("key");
 
   if (!ip) {
     return new Response(JSON.stringify({ error: "Missing 'ip' query parameter" }), {
@@ -42,7 +64,9 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const streamUrl = `http://${ip}:${port}/stream`;
+  const streamUrl = streamKey
+    ? `http://${ip}:${port}/stream?key=${encodeURIComponent(streamKey)}`
+    : `http://${ip}:${port}/stream`;
 
   // Use Node's raw http module instead of fetch() for this proxy.
   // fetch()'s undici client repeatedly failed on this long-lived MJPEG
@@ -116,7 +140,11 @@ export async function GET(request: NextRequest) {
               "Content-Type": contentType,
               "Cache-Control": "no-cache, no-store, must-revalidate",
               "Connection": "keep-alive",
-              "Access-Control-Allow-Origin": "*",
+              // No wildcard CORS header — this response now requires the
+              // caller's JWT and is fetched same-origin from the
+              // dashboard, so a public "*" header would let any
+              // third-party site read this stream cross-origin if it
+              // were ever fetched with credentials.
               "X-Proxy-Target": streamUrl,
             },
           })

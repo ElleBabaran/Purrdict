@@ -170,7 +170,11 @@ export default function DashboardPage() {
     async function fetchLiveData() {
       try {
         const catId = user?.cats[0]?.id || "";
-        const res = await fetch(`/api/esp32/data?limit=20`);
+        const token = localStorage.getItem("purrdict_token");
+        if (!catId || !token) throw new Error("No cat or auth token yet");
+        const res = await fetch(`/api/esp32/data?catId=${encodeURIComponent(catId)}&limit=20`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (!res.ok) throw new Error("API unavailable");
         const data = await res.json();
 

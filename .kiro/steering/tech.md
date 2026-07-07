@@ -38,10 +38,6 @@ inclusion: always
   intentional SSRF guard, not a bug.
 - Demo Mode: if `DATABASE_URL` is unset, API routes should return safe canned/empty responses
   instead of throwing. Preserve this fallback when touching any API route.
-- No Temporal, no Aikido Zen Firewall — both were deliberately removed (see product.md and the
-  code-review-fixes spec for why). Do not reintroduce a workflow engine or third-party runtime
-  firewall without discussing it first; if durable retries are ever needed again, prefer keeping
-  routes as plain async DB functions unless a workflow is actually invoked from the UI.
 - Build/verify with `npx next build` (or `npm run build`) after backend changes — the project's
   standard of evidence for "this works" throughout the report is "0 errors on `next build`" plus
   reading the route logic, since hardware-dependent flows (ESP32 stream, real GPS) can't be

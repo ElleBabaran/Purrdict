@@ -10,7 +10,11 @@ No guesswork. No "AI magic." Every detection method traces back to a published p
 
 ## 🎬 Demo Video
 
-> 📹 [Watch the demo →](https://youtu.be/YOUR_DEMO_LINK)
+> 📹 [Watch the demo →](https://youtu.be/xrBMzgs4mno)
+
+## 📄 Project Report
+
+> 📋 [Read the full project report →](documentation/PROJECT_REPORT.md)
 
 ---
 
@@ -137,13 +141,14 @@ Permissions-Policy: camera=(self), microphone=(self), geolocation=(self)
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Running Locally
 
 ### Prerequisites
 
 - Node.js 18+
-- PostgreSQL 14+ (or Neon serverless)
-- (Optional) ESP32-CAM + MPU6050 + GPS module hardware
+- PostgreSQL 14+ (or a free [Neon](https://neon.tech) serverless database)
+- (Optional) ESP32-CAM hardware — without it, use **Demo Mode** (see below) or the Setup
+  wizard's manual pairing to try the app with no physical device
 
 ### Setup
 
@@ -152,26 +157,49 @@ Permissions-Policy: camera=(self), microphone=(self), geolocation=(self)
 git clone https://github.com/YOUR_USER/purrdict.git
 cd purrdict
 
-# Install
+# Install dependencies
 npm install
 
-# Environment
-cp .env.local.example .env.local
-# Edit .env.local with your DATABASE_URL, JWT_SECRET, etc.
+# Environment — create .env.local in the project root (see variables below)
 
-# Database
+# Load the database schema (skip this if you're just using Demo Mode)
 psql -d purrdict -f sql/001_schema.sql
 
-# Run
+# Start the dev server
 npm run dev
 ```
 
+Then open **http://localhost:3000**. If `DATABASE_URL` is left unset, every API route falls
+back to safe canned/empty responses ("Demo Mode") so the whole app is still browsable — the
+fastest way to try it is clicking **Demo Mode** on the landing page, which bootstraps a sample
+cat ("Whiskers") without needing a database or ESP32 at all.
+
 ### Environment Variables
 
+Create `.env.local` in the project root:
+
 ```env
-DATABASE_URL=postgres://purrdict:password@localhost:5432/purrdict
+# Postgres / Neon connection string — omit entirely to run in Demo Mode
+DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+
+# Secret used to sign/verify JWTs — required once DATABASE_URL is set
 JWT_SECRET=your-long-random-secret
+
+# Powers the address autocomplete on the GPS/Vet Finder pages (free tier at geoapify.com)
+GEOAPIFY_API_KEY=your-geoapify-key
+
+# Base URL of this server, used by the OAuth/MCP endpoints — defaults to
+# http://localhost:3000 if unset
 NEXT_PUBLIC_BASE_URL=http://localhost:3000
+```
+
+### Other useful commands
+
+```bash
+npm run build       # production build
+npm run start        # run the production build
+npm run lint          # ESLint
+npm run cap:build      # static export + Capacitor sync (Android shell)
 ```
 
 ---
@@ -181,36 +209,45 @@ NEXT_PUBLIC_BASE_URL=http://localhost:3000
 ```
 src/
 ├── app/
-│   ├── api/                      — Backend route handlers (auth, cats, esp32, gps, reminders, scrapbook, vets, mcp)
+│   ├── api/                      — Route handlers: auth, cats, esp32, gps, geocode,
+│   │                                reminders, scrapbook, vets, mcp, oauth
 │   ├── dashboard/
-│   │   ├── page.tsx              — Live behavior + emotion + wellness
+│   │   ├── page.tsx              — Live behavior + emotion + wellness feed
 │   │   ├── cam/                  — ESP32-CAM live MJPEG stream
 │   │   ├── map/                  — GPS tracker + geofence map
 │   │   ├── health/               — Health monitor + vet finder
 │   │   ├── needs/                — Needs predictor
 │   │   ├── reminders/            — Todo/reminders
 │   │   └── scrapbook/            — Photo album (book style)
-│   ├── login/                    — Login page
-│   ├── signup/                   — Registration page
-│   └── setup/                    — Onboarding (IP connect → name → card)
+│   ├── login/, signup/, setup/   — Auth + onboarding wizard
+│   ├── oauth/, .well-known/      — OAuth 2.0 authorization server endpoints
+│   └── demo/                     — Demo Mode entry
 ├── components/
 │   ├── cards/CatCardList.tsx     — Cat profile cards with edit
 │   ├── CatRoom.tsx               — Cat room visualization
-│   ├── GpsMap.tsx                — Real Leaflet/OSM map
+│   ├── GpsMap.tsx                — Leaflet/OSM map (direct API, not react-leaflet)
+│   ├── AddressAutocomplete.tsx   — Geoapify-backed address search
 │   ├── PixelCat.tsx              — Pixel art cat animation
 │   ├── TutorialOverlay.tsx       — First-time user tutorial
 │   ├── nav/                      — TopBar + BottomNav
 │   └── landing/                  — Landing page sections
 ├── lib/
-│   ├── AuthContext.tsx           — Auth state + cat CRUD
-│   ├── db.ts                     — PostgreSQL pool (pg)
-│   ├── emotion.ts                — Emotion scoring (Nicholson 2021 ethogram)
-│   ├── mockData.ts               — Demo data for needs predictor
-│   └── oauth.ts                  — OAuth 2.0 Authorization Server
+│   ├── AuthContext.tsx           — Auth state + cat CRUD (client)
+│   ├── auth.ts                   — JWT sign/verify helpers
+│   ├── db.ts                     — PostgreSQL pool (pg / Neon)
+│   ├── emotion.ts                — Server-side emotion scoring (Nicholson & O'Carroll 2021)
+│   ├── mockData.ts               — Demo/static data (Needs Predictor, Demo Mode)
+│   └── oauth.ts                  — OAuth 2.0 authorization server logic
 sql/
-└── 001_schema.sql                — Full PostgreSQL schema + research refs
+└── 001_schema.sql                — Full PostgreSQL schema (users, cats, esp32_devices, gps_logs,
+                                     behavior_events, sensor_readings, emotion_assessments,
+                                     scrapbook_books, scrapbook_entries, reminders, oauth_*,
+                                     research_references)
 esp32/
-└── README.md                     — ESP32 firmware docs
+└── README.md                     — ESP32 firmware docs (Arduino/C++)
+android/                          — Capacitor Android shell
+documentation/
+├── PROJECT_REPORT.md / .pdf      — Hackathon submission report
 ```
 
 ---
@@ -219,16 +256,17 @@ esp32/
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js 16, React 19, Tailwind CSS 4 |
-| Auth | bcryptjs + jsonwebtoken (JWT) |
-| Database | PostgreSQL / Neon + `pg` (raw SQL, parameterized) |
-| Maps | Leaflet.js + OpenStreetMap (CartoDB dark tiles) |
+| Frontend | Next.js 16.2.9, React 19.2.4, Tailwind CSS 4 |
+| Auth | bcryptjs (cost 12) + jsonwebtoken (custom JWT) |
+| Database | PostgreSQL / Neon serverless (`@neondatabase/serverless` + `pg`) — raw parameterized SQL, no ORM |
+| Maps | Leaflet.js via direct API (not `react-leaflet`) + OpenStreetMap (CartoDB dark tiles) |
+| Geocoding | Geoapify Address Autocomplete + OpenStreetMap Nominatim |
 | Vet Search | OpenStreetMap Nominatim (geocoding) + Overpass API (live clinic search) |
 | Security | CSP/HSTS security headers, parameterized SQL, JWT + bcrypt |
-| MCP | OAuth 2.0 (RFC 6749/7591/7636/9728) + MCP transport |
-| Deployment | Vercel / any Node.js host |
-| Mobile | Capacitor (Android ready) |
-| Hardware | ESP32-CAM, MPU6050, GPS module, INP sensor |
+| MCP | `mcp-handler` + custom OAuth 2.0 authorization server (RFC 6749/7591/7636/9728) |
+| Deployment | Vercel (`purrdict.vercel.app`) |
+| Mobile | Capacitor 8 (Android WebView shell, `appId: app.purrdict.cat`) |
+| Hardware | ESP32-CAM (AI-Thinker, OV2640) — camera + frame-diff motion sensing only, no IMU/GPS chip yet |
 
 ---
 
@@ -239,16 +277,16 @@ esp32/
 - 📡 **ESP32 Pairing** — IP-based connection to smart leash on same Wi-Fi
 - 📊 **Live Behavior Detection** — 10 behaviors classified from leash sensors in real-time (sleeping, grooming, eating, playing, walking, sitting/alert, scratching, running, drinking, jumping)
 - 😌 **Emotion Assessment** — 5 feline emotion states (Nicholson 2021 framework) scored server-side from each behavior reading and persisted to `emotion_assessments`, not recomputed from whatever's on screen
-- 🩺 **Wellness Check** — Pain/discomfort detection via motion anomalies against 14-day baseline (Evangelista 2023)
+- 🩺 **Wellness Check** — Pain/discomfort panel citing the Evangelista 2023 pain ethogram *(currently a static "Score: 0/10 — No Anomalies" placeholder, not yet computed from a real 14-day baseline)*
 - 🌙 **Circadian Awareness** — Activity predictions based on crepuscular dawn/dusk patterns (Piccione 2013)
 - 📷 **Cat Cam** — Live MJPEG stream from ESP32-CAM with snapshot capture
-- 🗺️ **GPS Tracker** — Real OpenStreetMap with home geocoding, geofence alerts, trail visualization, and a realistic random-waypoint movement simulation (walk/rest cycles at mode-dependent speeds) until real GPS hardware is wired up
-- 🔮 **Needs Predictor** — Estimates hunger, thirst, play, rest, attention needs with confidence %
+- 🗺️ **GPS Tracker** — Real OpenStreetMap with home geocoding, geofence alerts, and trail visualization *(coordinate source is currently a random-waypoint walk simulation until real GPS hardware exists)*
+- 🔮 **Needs Predictor** — Estimates hunger, thirst, play, rest, attention needs with confidence % *(currently renders a static sample array from `src/lib/mockData.ts`, not live sensor data)*
 - 📖 **Scrapbook** — Book-style albums with customizable covers, photos, videos, notes, and tags
-- 🔔 **Reminders** — Categorized tasks (feeding/health/play/grooming/vet) with priority and recurring schedules
-- ❤️ **Health Monitor** — 7-day sensor baseline, activity metrics (steps, jumps, grooming, meals), anomaly alerts
+- 🔔 **Reminders** — Categorized tasks (feeding/health/play/grooming/vet) with priority and recurring schedules *(the dashboard list currently runs on local state only — not yet wired to the working `/api/reminders/schedule` endpoint, so it doesn't persist across refresh)*
+- ❤️ **Health Monitor** — 7-day baseline chart + activity metrics UI *(currently `Math.random()`-generated demo values; sensor names shown (MPU6050, INP) don't match the actual firmware, which is camera + frame-diff motion only — no IMU/GPS chip yet)*
 - 🏥 **Vet Finder** — Search real veterinary clinics nearby using OpenStreetMap Overpass API + geocoding
-- 🤖 **MCP Server** — OAuth 2.0 protected API for Claude Connector / AI agent integration
+- 🤖 **MCP Server** — OAuth 2.0 protected tools for AI agents (e.g. Claude) to query a cat's data, every tool scoped to the authenticated `owner_id`
 
 ---
 

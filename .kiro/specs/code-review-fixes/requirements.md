@@ -40,23 +40,7 @@ of a silent failure if I try to add a scrapbook entry.
    SHALL return `400` with a clear message instead of inserting `NULL` into the `NOT NULL
    cat_id` column.
 
-### Requirement 4 — Remove unused orchestration/firewall dependencies
-
-**User Story:** As a maintainer, I want the dependency graph to only include things that are
-actually exercised by the live request path.
-
-**Acceptance Criteria:**
-1. WHEN none of `pairEsp32Workflow`, `reminderSchedulerWorkflow`, `gpsMonitoringWorkflow`, and
-   `behaviorAnalysisWorkflow` are invoked from any dashboard page THEN the system SHALL remove
-   Temporal (`src/temporal/`, `@temporalio/*`, related npm scripts) and SHALL reimplement
-   `/api/esp32/pair`, `/api/reminders/schedule`, and `/api/gps/monitor` as plain async DB
-   functions with the same request/response contract.
-2. WHEN Aikido Zen Firewall is not validated against a concrete threat model for this project
-   THEN the system SHALL remove `src/instrumentation.ts`, the `@aikidosec/firewall` dependency,
-   and its `next.config.ts` `serverExternalPackages` entry, while preserving all application-level
-   protections (parameterized SQL, CSP/HSTS headers, JWT + bcrypt, input validation).
-
-### Requirement 5 — Live vet search
+### Requirement 4 — Live vet search
 
 **User Story:** As a cat owner anywhere in the world, I want to search for real nearby
 veterinary clinics instead of a fixed list of 8 pre-seeded regions.
@@ -70,7 +54,7 @@ veterinary clinics instead of a fixed list of 8 pre-seeded regions.
 3. WHEN this route ships THEN the system SHALL remove the hardcoded `WORLDWIDE_VETS` client-side
    dataset entirely.
 
-### Requirement 6 — Server-side, persisted emotion assessment
+### Requirement 5 — Server-side, persisted emotion assessment
 
 **User Story:** As a cat owner, I want the emotion panel to reflect a real, persisted assessment
 tied to each behavior event, not a label recomputed from whatever's currently on screen.
@@ -83,7 +67,7 @@ tied to each behavior event, not a label recomputed from whatever's currently on
    latest persisted row, falling back to a client-computed estimate (same scoring function) only
    when no row exists yet (e.g. a fresh Demo Mode session).
 
-### Requirement 7 — More realistic GPS simulation
+### Requirement 6 — More realistic GPS simulation
 
 **User Story:** As a demo viewer, I want the simulated cat movement on the map to look like
 actual wandering instead of teleporting between fixed points, while real GPS hardware is

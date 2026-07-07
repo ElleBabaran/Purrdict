@@ -4,7 +4,9 @@ import {
   verifyCodeChallenge,
   createTokenPair,
   refreshAccessToken,
+  findTokenByRefreshToken,
   getClient,
+  timingSafeStringEqual,
 } from "@/lib/oauth";
 
 /**
@@ -84,32 +86,41 @@ async function handleAuthorizationCode(params: URLSearchParams) {
     );
   }
 
-  // Verify PKCE code_challenge
-  if (authCode.code_challenge) {
-    if (!codeVerifier) {
-      return NextResponse.json(
-        { error: "invalid_grant", error_description: "code_verifier is required" },
-        { status: 400 }
-      );
-    }
-    const valid = verifyCodeChallenge(
-      codeVerifier,
-      authCode.code_challenge,
-      authCode.code_challenge_method || "S256"
+  // Verify PKCE code_challenge. Every code minted by /oauth/authorize now
+  // carries one (see isPkceRequired in src/lib/oauth.ts), so a missing
+  // code_challenge here is treated as invalid rather than skipping PKCE
+  // verification entirely — the previous `if (authCode.code_challenge)`
+  // guard meant a code with no challenge attached skipped this check
+  // altogether and could be redeemed with no code_verifier at all.
+  if (!authCode.code_challenge) {
+    return NextResponse.json(
+      { error: "invalid_grant", error_description: "Authorization code is missing a PKCE code_challenge." },
+      { status: 400 }
     );
-    if (!valid) {
-      return NextResponse.json(
-        { error: "invalid_grant", error_description: "PKCE verification failed" },
-        { status: 400 }
-      );
-    }
+  }
+  if (!codeVerifier) {
+    return NextResponse.json(
+      { error: "invalid_grant", error_description: "code_verifier is required" },
+      { status: 400 }
+    );
+  }
+  const validPkce = verifyCodeChallenge(
+    codeVerifier,
+    authCode.code_challenge,
+    authCode.code_challenge_method || "S256"
+  );
+  if (!validPkce) {
+    return NextResponse.json(
+      { error: "invalid_grant", error_description: "PKCE verification failed" },
+      { status: 400 }
+    );
   }
 
   // Authenticate client if it's confidential
   const client = await getClient(clientId);
   if (client && client.token_endpoint_auth_method === "client_secret_post") {
     const clientSecret = params.get("client_secret");
-    if (clientSecret !== client.client_secret) {
+    if (!clientSecret || !client.client_secret || !timingSafeStringEqual(clientSecret, client.client_secret)) {
       return NextResponse.json(
         { error: "invalid_client", error_description: "Client authentication failed" },
         { status: 401 }
@@ -143,21 +154,47 @@ async function handleRefreshToken(params: URLSearchParams) {
     );
   }
 
-  // Authenticate client if confidential
-  if (clientId) {
-    const client = await getClient(clientId);
-    if (client && client.token_endpoint_auth_method === "client_secret_post") {
-      const clientSecret = params.get("client_secret");
-      if (clientSecret !== client.client_secret) {
-        return NextResponse.json(
-          { error: "invalid_client", error_description: "Client authentication failed" },
-          { status: 401 }
-        );
-      }
+  // Resolve which client this refresh token actually belongs to *before*
+  // deciding whether client authentication is required.
+  //
+  // Auth bypass fix: this previously only ran the client_secret_post check
+  // "if (clientId)" was present in the request body — a caller could omit
+  // client_id entirely and redeem a confidential client's refresh token
+  // with no secret at all, since the code path that authenticates the
+  // client would simply never execute. The token's owning client is now
+  // looked up from the database record itself (immutable, not attacker-
+  // supplied), and if that client is confidential, its secret is always
+  // required regardless of what the request did or didn't include.
+  const existingToken = await findTokenByRefreshToken(refreshToken);
+  if (!existingToken) {
+    return NextResponse.json(
+      { error: "invalid_grant", error_description: "Refresh token is invalid, expired, or revoked" },
+      { status: 400 }
+    );
+  }
+
+  // If the request supplied a client_id, it must match the token's actual
+  // owning client — otherwise this looks like an attempt to redeem one
+  // client's refresh token under a different client's identity.
+  if (clientId && clientId !== existingToken.client_id) {
+    return NextResponse.json(
+      { error: "invalid_grant", error_description: "client_id does not match this refresh token" },
+      { status: 400 }
+    );
+  }
+
+  const client = await getClient(existingToken.client_id);
+  if (client && client.token_endpoint_auth_method === "client_secret_post") {
+    const clientSecret = params.get("client_secret");
+    if (!clientSecret || !client.client_secret || !timingSafeStringEqual(clientSecret, client.client_secret)) {
+      return NextResponse.json(
+        { error: "invalid_client", error_description: "Client authentication failed" },
+        { status: 401 }
+      );
     }
   }
 
-  const tokens = await refreshAccessToken(refreshToken);
+  const tokens = await refreshAccessToken(existingToken.id);
   if (!tokens) {
     return NextResponse.json(
       { error: "invalid_grant", error_description: "Refresh token is invalid, expired, or revoked" },

@@ -28,20 +28,78 @@ export function getIssuer(): string {
 
 // ── PKCE ──
 
+/** Constant-time string comparison to avoid timing side-channels on secrets/hashes. */
+export function timingSafeStringEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    // Still run a comparison of equal length to avoid leaking length via
+    // early return timing, then fail.
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 export function verifyCodeChallenge(
   codeVerifier: string,
   codeChallenge: string,
   method: string
 ): boolean {
-  if (method === "S256") {
-    const hash = crypto
-      .createHash("sha256")
-      .update(codeVerifier)
-      .digest("base64url");
-    return hash === codeChallenge;
-  }
-  // plain (not recommended but spec allows)
-  return codeVerifier === codeChallenge;
+  // "plain" is intentionally not accepted: with plain, code_challenge ==
+  // code_verifier, so anywhere the challenge is observable (browser
+  // history, referrer headers, server logs) fully defeats PKCE's
+  // protection against authorization code interception. RFC 7636 allows
+  // plain only as a fallback for clients that can't compute SHA-256;
+  // every realistic OAuth client for this server can, so S256 is
+  // required unconditionally.
+  if (method !== "S256") return false;
+  const hash = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
+  return timingSafeStringEqual(hash, codeChallenge);
+}
+
+/**
+ * Whether an authorization request must include a PKCE code_challenge.
+ *
+ * Previously code_challenge was fully optional for every client. Combined
+ * with the /oauth/authorize redirect_uri validation gap (see
+ * isRedirectUriRegistered below — that gap is what's fixed there), an
+ * authorization code was a bare bearer credential: anyone who obtained it
+ * (e.g. via a redirect to an attacker-controlled URI) could redeem it at
+ * /oauth/token with no further proof of possession. Requiring PKCE for
+ * every authorization_code request (not just public clients) means a
+ * code is worthless without the original code_verifier, which never
+ * leaves the legitimate client. This matches OAuth 2.1's blanket PKCE
+ * requirement rather than only mandating it for public clients.
+ */
+export function isPkceRequired(): boolean {
+  return true;
+}
+
+// ── Redirect URI validation ──
+
+/**
+ * Checks a requested redirect_uri against a client's registered
+ * redirect_uris. For localhost/127.0.0.1 the port is ignored (RFC 8252
+ * §7.3 — native apps often bind to an ephemeral port), otherwise an exact
+ * match is required.
+ */
+export function isRedirectUriRegistered(client: OAuthClient, redirectUri: string): boolean {
+  return client.redirect_uris.some((uri) => {
+    try {
+      const registered = new URL(uri);
+      const requested = new URL(redirectUri);
+      if (
+        (registered.hostname === "localhost" || registered.hostname === "127.0.0.1") &&
+        (requested.hostname === "localhost" || requested.hostname === "127.0.0.1")
+      ) {
+        return registered.pathname === requested.pathname;
+      }
+      return uri === redirectUri;
+    } catch {
+      return uri === redirectUri;
+    }
+  });
 }
 
 // ── Token generation ──
@@ -279,7 +337,28 @@ export async function createTokenPair(params: {
   };
 }
 
-export async function refreshAccessToken(refreshToken: string): Promise<{
+/**
+ * Looks up the oauth_tokens row for a refresh token without consuming it —
+ * used by the token endpoint to resolve which client actually owns this
+ * token *before* deciding whether client authentication is required.
+ */
+export async function findTokenByRefreshToken(refreshToken: string): Promise<{
+  id: string;
+  client_id: string;
+  user_id: string;
+  scope: string | null;
+} | null> {
+  if (!isDbAvailable()) return null;
+
+  return queryOne<{ id: string; client_id: string; user_id: string; scope: string | null }>(
+    `SELECT id, client_id, user_id, scope
+     FROM oauth_tokens
+     WHERE refresh_token = $1 AND revoked = false AND refresh_token_expires_at > now()`,
+    [refreshToken]
+  );
+}
+
+export async function refreshAccessToken(refreshTokenId: string): Promise<{
   access_token: string;
   refresh_token: string;
   expires_in: number;
@@ -288,7 +367,8 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
 } | null> {
   if (!isDbAvailable()) return null;
 
-  // Find existing token
+  // Find existing token by its row id (already resolved + client-authenticated
+  // by the caller — see handleRefreshToken in src/app/oauth/token/route.ts).
   const existing = await queryOne<{
     id: string;
     client_id: string;
@@ -298,8 +378,8 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   }>(
     `SELECT id, client_id, user_id, scope, refresh_token_expires_at
      FROM oauth_tokens
-     WHERE refresh_token = $1 AND revoked = false AND refresh_token_expires_at > now()`,
-    [refreshToken]
+     WHERE id = $1 AND revoked = false AND refresh_token_expires_at > now()`,
+    [refreshTokenId]
   );
 
   if (!existing) return null;
