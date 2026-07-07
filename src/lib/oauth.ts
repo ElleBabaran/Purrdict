@@ -81,22 +81,36 @@ export function isPkceRequired(): boolean {
 /**
  * Checks a requested redirect_uri against a client's registered
  * redirect_uris. For localhost/127.0.0.1 the port is ignored (RFC 8252
- * §7.3 — native apps often bind to an ephemeral port), otherwise an exact
- * match is required.
+ * §7.3 — native apps often bind to an ephemeral port), but protocol,
+ * hostname, pathname, and query parameters must still match exactly.
+ * For all other hosts, an exact string match is required.
  */
 export function isRedirectUriRegistered(client: OAuthClient, redirectUri: string): boolean {
   return client.redirect_uris.some((uri) => {
     try {
       const registered = new URL(uri);
       const requested = new URL(redirectUri);
-      if (
-        (registered.hostname === "localhost" || registered.hostname === "127.0.0.1") &&
-        (requested.hostname === "localhost" || requested.hostname === "127.0.0.1")
-      ) {
-        return registered.pathname === requested.pathname;
+      
+      // For localhost/127.0.0.1, ignore port but validate everything else
+      const isRegisteredLocal = registered.hostname === "localhost" || registered.hostname === "127.0.0.1";
+      const isRequestedLocal = requested.hostname === "localhost" || requested.hostname === "127.0.0.1";
+      
+      if (isRegisteredLocal && isRequestedLocal) {
+        // Both must use the same protocol (prevent https → http downgrade)
+        // Both must have the same pathname and search params
+        // Port is ignored per RFC 8252 §7.3
+        return (
+          registered.protocol === requested.protocol &&
+          registered.pathname === requested.pathname &&
+          registered.search === requested.search &&
+          registered.hash === requested.hash
+        );
       }
+      
+      // For non-localhost, require exact match
       return uri === redirectUri;
     } catch {
+      // If URL parsing fails, fall back to exact string comparison
       return uri === redirectUri;
     }
   });
