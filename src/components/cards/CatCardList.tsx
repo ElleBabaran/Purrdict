@@ -44,9 +44,9 @@ export default function CatCardList() {
     setEditPhoto(cat.photo);
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     if (!editingId || !editName.trim()) return;
-    updateCat(editingId, {
+    await updateCat(editingId, {
       name: editName.trim(),
       breed: editBreed.trim() || "Unknown breed",
       ageMonths: parseInt(editAge) || null,
@@ -64,9 +64,9 @@ export default function CatCardList() {
     reader.readAsDataURL(file);
   }
 
-  function handleDelete(id: string, name: string) {
+  async function handleDelete(id: string, name: string) {
     if (confirm(`Delete ${name}'s card? This can't be undone.`)) {
-      deleteCat(id);
+      await deleteCat(id);
       if (editingId === id) setEditingId(null);
     }
   }

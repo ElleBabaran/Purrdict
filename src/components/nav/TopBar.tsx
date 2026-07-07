@@ -6,8 +6,8 @@ export default function TopBar({ title }: { title: string }) {
   const { user, logout } = useAuth();
   const router = useRouter();
 
-  function handleSignOut() {
-    logout();
+  async function handleSignOut() {
+    await logout();
     router.push("/");
   }
 

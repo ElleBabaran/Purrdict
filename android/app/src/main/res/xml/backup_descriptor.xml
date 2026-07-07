@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Legacy backup exclusion rules for Android 11 and below (API 30-)
+  Explicitly excludes sensitive data from backup, including WebView localStorage
+  that contains authentication tokens.
+-->
+<full-backup-content>
+    <!-- Exclude WebView data containing localStorage tokens -->
+    <exclude domain="file" path="app_webview/" />
+    <!-- Exclude all databases -->
+    <exclude domain="database" />
+    <!-- Exclude all shared preferences -->
+    <exclude domain="sharedpref" />
+</full-backup-content>

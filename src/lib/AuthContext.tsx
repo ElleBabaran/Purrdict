@@ -8,6 +8,55 @@ import {
   type ReactNode,
 } from "react";
 
+/**
+ * SECURITY NOTE: Token Storage
+ * 
+ * This implementation uses localStorage for token storage, which has known security limitations:
+ * - localStorage is not encrypted at rest on the device
+ * - Tokens stored in localStorage are accessible to any JavaScript running in the same origin
+ * - While Android backup is disabled (android:allowBackup="false") and explicit backup exclusion
+ *   rules are configured, localStorage in WebView is still vulnerable to device-level attacks
+ * 
+ * MITIGATION MEASURES IN PLACE:
+ * 1. Android manifest sets android:allowBackup="false"
+ * 2. Explicit backup exclusion rules for Android 12+ (dataExtractionRules)
+ * 3. Legacy backup exclusion rules for Android 11- (fullBackupContent)
+ * 4. WebView localStorage directory explicitly excluded from backups
+ * 
+ * RECOMMENDED FUTURE ENHANCEMENT:
+ * Migrate to platform-specific secure storage:
+ * - Android: Use Android Keystore via @capacitor-community/secure-storage-plugin
+ * - iOS: Use iOS Keychain via @capacitor-community/secure-storage-plugin
+ * - Web: Continue using localStorage (acceptable for web context)
+ * 
+ * The storage abstraction functions below (secureStorage) are designed to make
+ * this migration straightforward when the secure storage plugin is added.
+ */
+
+/**
+ * Storage abstraction layer for sensitive data (tokens)
+ * Currently uses localStorage but designed for easy migration to secure storage
+ */
+const secureStorage = {
+  async getItem(key: string): Promise<string | null> {
+    // TODO: Replace with secure storage plugin when available
+    // Example: return await SecureStoragePlugin.get({ key });
+    return localStorage.getItem(key);
+  },
+  
+  async setItem(key: string, value: string): Promise<void> {
+    // TODO: Replace with secure storage plugin when available
+    // Example: await SecureStoragePlugin.set({ key, value });
+    localStorage.setItem(key, value);
+  },
+  
+  async removeItem(key: string): Promise<void> {
+    // TODO: Replace with secure storage plugin when available
+    // Example: await SecureStoragePlugin.remove({ key });
+    localStorage.removeItem(key);
+  }
+};
+
 export interface CatCard {
   id: string;
   name: string;
@@ -33,10 +82,10 @@ interface AuthState {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   signup: (email: string, password: string, name: string) => Promise<boolean>;
-  logout: () => void;
-  addCat: (cat: CatCard) => void;
-  updateCat: (id: string, updates: Partial<CatCard>) => void;
-  deleteCat: (id: string) => void;
+  logout: () => Promise<void>;
+  addCat: (cat: CatCard) => Promise<void>;
+  updateCat: (id: string, updates: Partial<CatCard>) => Promise<void>;
+  deleteCat: (id: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -46,21 +95,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load user and token from localStorage on mount
+  // Load user and token from storage on mount
   useEffect(() => {
-    const stored = localStorage.getItem("purrdict_user");
-    const storedToken = localStorage.getItem("purrdict_token");
-    if (stored) {
-      try {
-        setUser(JSON.parse(stored));
-      } catch {
-        // ignore corrupt data
+    const loadStoredAuth = async () => {
+      const stored = localStorage.getItem("purrdict_user");
+      const storedToken = await secureStorage.getItem("purrdict_token");
+      if (stored) {
+        try {
+          setUser(JSON.parse(stored));
+        } catch {
+          // ignore corrupt data
+        }
       }
-    }
-    if (storedToken) {
-      setToken(storedToken);
-    }
-    setIsLoading(false);
+      if (storedToken) {
+        setToken(storedToken);
+      }
+      setIsLoading(false);
+    };
+    loadStoredAuth();
   }, []);
 
   // Persist user state
@@ -88,7 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
       setUser(data.user);
       if (data.token) {
-        localStorage.setItem("purrdict_token", data.token);
+        await secureStorage.setItem("purrdict_token", data.token);
         setToken(data.token);
       }
       return true;
@@ -114,7 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
       setUser(data.user);
       if (data.token) {
-        localStorage.setItem("purrdict_token", data.token);
+        await secureStorage.setItem("purrdict_token", data.token);
         setToken(data.token);
       }
       return true;
@@ -125,16 +177,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── Logout ──
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     setUser(null);
     setToken(null);
     localStorage.removeItem("purrdict_user");
-    localStorage.removeItem("purrdict_token");
+    await secureStorage.removeItem("purrdict_token");
     localStorage.removeItem("purrdict_tutorial_done");
   }, []);
 
   // ── Cat CRUD (local state + API) ──
-  const addCat = useCallback((cat: CatCard) => {
+  const addCat = useCallback(async (cat: CatCard) => {
     setUser((prev) => {
       if (!prev) {
         // Create a guest user if none exists
@@ -149,7 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ...prev, cats: [...prev.cats, cat] };
     });
     // Also persist to API
-    const token = localStorage.getItem("purrdict_token");
+    const token = await secureStorage.getItem("purrdict_token");
     if (token) {
       fetch("/api/cats", {
         method: "POST",
@@ -159,27 +211,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const updateCat = useCallback((id: string, updates: Partial<CatCard>) => {
+  const updateCat = useCallback(async (id: string, updates: Partial<CatCard>) => {
     setUser((prev) =>
       prev ? { ...prev, cats: prev.cats.map((c) => (c.id === id ? { ...c, ...updates } : c)) } : prev
     );
-    const token = localStorage.getItem("purrdict_token");
-    fetch(`/api/cats/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(updates),
-    }).catch(() => {});
+    const token = await secureStorage.getItem("purrdict_token");
+    if (token) {
+      fetch(`/api/cats/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(updates),
+      }).catch(() => {});
+    }
   }, []);
 
-  const deleteCat = useCallback((id: string) => {
+  const deleteCat = useCallback(async (id: string) => {
     setUser((prev) =>
       prev ? { ...prev, cats: prev.cats.filter((c) => c.id !== id) } : prev
     );
-    const token = localStorage.getItem("purrdict_token");
-    fetch(`/api/cats/${id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => {});
+    const token = await secureStorage.getItem("purrdict_token");
+    if (token) {
+      fetch(`/api/cats/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
   }, []);
 
   return (
