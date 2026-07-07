@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDbAvailable, query } from "@/lib/db";
+import jwt from "jsonwebtoken";
 
 /**
  * POST /api/esp32/snapshot
@@ -8,6 +9,7 @@ import { isDbAvailable, query } from "@/lib/db";
  *
  * GET /api/esp32/snapshot
  * Returns the latest JPEG snapshot as an image.
+ * Requires authentication via Bearer token to prevent unauthorized access.
  *
  * Performance note: the database is a remote Neon Postgres instance
  * (often a different region/continent from the dev machine). Awaiting a
@@ -26,21 +28,40 @@ import { isDbAvailable, query } from "@/lib/db";
  *   received a push yet since cold start).
  */
 
+const JWT_SECRET = process.env.JWT_SECRET || "purrdict-dev-secret-change-in-prod";
+
+function getUserId(request: NextRequest): string | null {
+  const auth = request.headers.get("authorization");
+  if (!auth?.startsWith("Bearer ")) return null;
+  try {
+    const decoded = jwt.verify(auth.slice(7), JWT_SECRET) as { userId: string };
+    return decoded.userId;
+  } catch {
+    return null;
+  }
+}
+
 // In-memory cache — primary source of truth for the live feed. Always
 // used when populated, regardless of whether a DB is configured.
-let latestSnapshot: Buffer | null = null;
-let latestSnapshotTime = 0;
-let latestDeviceId: string | null = null;
+// Now tracks owner_id to ensure snapshots are only served to authorized users.
+interface CachedSnapshot {
+  buffer: Buffer;
+  timestamp: number;
+  deviceId: string | null;
+  ownerId: string | null;
+}
+
+let latestSnapshot: CachedSnapshot | null = null;
 
 function findDeviceId(clientDeviceId?: string) {
   if (clientDeviceId) {
-    return query<{ id: string }>(
-      "SELECT id FROM esp32_devices WHERE id::text = $1 OR pin = $1 LIMIT 1",
+    return query<{ id: string; owner_id: string | null }>(
+      "SELECT id, owner_id FROM esp32_devices WHERE id::text = $1 OR pin = $1 LIMIT 1",
       [clientDeviceId]
     );
   }
-  return query<{ id: string }>(
-    "SELECT id FROM esp32_devices ORDER BY last_seen DESC NULLS LAST LIMIT 1",
+  return query<{ id: string; owner_id: string | null }>(
+    "SELECT id, owner_id FROM esp32_devices ORDER BY last_seen DESC NULLS LAST LIMIT 1",
     []
   );
 }
@@ -71,12 +92,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Image too small" }, { status: 400 });
     }
 
+    // Determine device ownership for authorization
+    let ownerId: string | null = null;
+    if (isDbAvailable()) {
+      const devices = await findDeviceId(clientDeviceId);
+      if (devices.length > 0) {
+        ownerId = devices[0].owner_id;
+      }
+    }
+
     // Hot path: update the in-memory cache immediately and respond to the
     // ESP32 right away. This is what keeps frame delivery fast/real-time —
     // nothing here waits on the database.
-    latestSnapshot = imageBuffer;
-    latestSnapshotTime = Date.now();
-    latestDeviceId = clientDeviceId || latestDeviceId;
+    latestSnapshot = {
+      buffer: imageBuffer,
+      timestamp: Date.now(),
+      deviceId: clientDeviceId || null,
+      ownerId: ownerId,
+    };
 
     // Background persistence (fire-and-forget): only matters for surviving
     // a Vercel cold start between pushes. Errors here must never affect
@@ -99,10 +132,10 @@ async function persistSnapshotInBackground(imageBuffer: Buffer, clientDeviceId?:
       devices = await findDeviceId(undefined);
     }
     if (devices.length === 0) {
-      const created = await query<{ id: string }>(
+      const created = await query<{ id: string; owner_id: string | null }>(
         `INSERT INTO esp32_devices (pin, firmware_version, is_online, last_seen)
          VALUES ($1, '1.0.0-push', true, now())
-         RETURNING id`,
+         RETURNING id, owner_id`,
         [clientDeviceId || "ESP32PUSH"]
       );
       devices = created;
@@ -123,23 +156,40 @@ async function persistSnapshotInBackground(imageBuffer: Buffer, clientDeviceId?:
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Require authentication to prevent unauthorized access to camera snapshots
+  const userId = getUserId(request);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
-    // Hot path: serve straight from memory whenever we have it.
+    // Hot path: serve straight from memory whenever we have it AND the user owns the device
     if (latestSnapshot) {
-      return respondWithSnapshot(latestSnapshot, latestSnapshotTime);
+      // Check if the cached snapshot belongs to this user
+      if (latestSnapshot.ownerId === userId || latestSnapshot.ownerId === null) {
+        // ownerId === null means device not yet paired, allow access for backward compatibility
+        // during initial setup, but this should be restricted in production deployments
+        return respondWithSnapshot(latestSnapshot.buffer, latestSnapshot.timestamp);
+      }
+      // User doesn't own this cached snapshot, fall through to DB query
     }
 
-    // Memory is empty (fresh serverless cold start) — fall back to the DB
-    // so a Vercel deployment can still recover the last known frame.
+    // Memory is empty or user doesn't own cached snapshot — fall back to the DB
+    // Query only devices owned by the authenticated user
     if (isDbAvailable()) {
-      const device = await query<{ latest_snapshot: string | null; latest_snapshot_at: string | null }>(
-        `SELECT latest_snapshot, latest_snapshot_at
+      const device = await query<{ 
+        latest_snapshot: string | null; 
+        latest_snapshot_at: string | null;
+        owner_id: string | null;
+      }>(
+        `SELECT latest_snapshot, latest_snapshot_at, owner_id
          FROM esp32_devices
          WHERE latest_snapshot IS NOT NULL
+           AND (owner_id = $1 OR owner_id IS NULL)
          ORDER BY latest_snapshot_at DESC NULLS LAST
          LIMIT 1`,
-        []
+        [userId]
       );
 
       if (device.length > 0 && device[0].latest_snapshot) {
@@ -148,8 +198,12 @@ export async function GET() {
           ? new Date(device[0].latest_snapshot_at).getTime()
           : 0;
         // Warm the in-memory cache so subsequent polls skip the DB entirely.
-        latestSnapshot = buffer;
-        latestSnapshotTime = snapshotTime;
+        latestSnapshot = {
+          buffer: buffer,
+          timestamp: snapshotTime,
+          deviceId: null,
+          ownerId: device[0].owner_id,
+        };
         return respondWithSnapshot(buffer, snapshotTime);
       }
     }
@@ -188,7 +242,7 @@ function respondWithSnapshot(buffer: Buffer | null, snapshotTime: number) {
       "Cache-Control": "no-cache, no-store, must-revalidate",
       "X-Snapshot-Time": snapshotTime.toString(),
       "X-Snapshot-Age": `${Math.round((Date.now() - snapshotTime) / 1000)}s`,
-      "Access-Control-Allow-Origin": "*",
+      // Removed wildcard CORS - authenticated requests don't need it for same-origin
     },
   });
 }

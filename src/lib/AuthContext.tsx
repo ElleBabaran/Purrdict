@@ -29,6 +29,7 @@ export interface User {
 
 interface AuthState {
   user: User | null;
+  token: string | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   signup: (email: string, password: string, name: string) => Promise<boolean>;
@@ -42,17 +43,22 @@ const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load user from localStorage on mount
+  // Load user and token from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem("purrdict_user");
+    const storedToken = localStorage.getItem("purrdict_token");
     if (stored) {
       try {
         setUser(JSON.parse(stored));
       } catch {
         // ignore corrupt data
       }
+    }
+    if (storedToken) {
+      setToken(storedToken);
     }
     setIsLoading(false);
   }, []);
@@ -83,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(data.user);
       if (data.token) {
         localStorage.setItem("purrdict_token", data.token);
+        setToken(data.token);
       }
       return true;
     } catch {
@@ -108,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(data.user);
       if (data.token) {
         localStorage.setItem("purrdict_token", data.token);
+        setToken(data.token);
       }
       return true;
     } catch {
@@ -119,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // ── Logout ──
   const logout = useCallback(() => {
     setUser(null);
+    setToken(null);
     localStorage.removeItem("purrdict_user");
     localStorage.removeItem("purrdict_token");
     localStorage.removeItem("purrdict_tutorial_done");
@@ -175,7 +184,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, login, signup, logout, addCat, updateCat, deleteCat }}
+      value={{ user, token, isLoading, login, signup, logout, addCat, updateCat, deleteCat }}
     >
       {children}
     </AuthContext.Provider>
