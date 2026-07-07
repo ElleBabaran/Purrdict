@@ -8,6 +8,12 @@ No guesswork. No "AI magic." Every detection method traces back to a published p
 
 ---
 
+## 📱 App Download
+> 📹 [Download Here →](https://drive.google.com/drive/folders/1snZ_peLpOO2OzAf0UMnVde7kp8O7bYjV?usp=sharing)
+
+## 🌐 Website
+> 🔗 [Open Here →](https://purrdict.vercel.app/)
+
 ## 🎬 Demo Video
 
 > 📹 [Watch the demo →](https://youtu.be/xrBMzgs4mno)
@@ -15,7 +21,9 @@ No guesswork. No "AI magic." Every detection method traces back to a published p
 ## 📄 Project Report
 
 > 📋 [Read the full project report →](documentation/PROJECT_REPORT.md)
-
+> 📈 [Read the development progress report →](documentation/PROGRESS_REPORT.md)
+> 🔒 [Read the ESP32 snapshot security analysis →](documentation/aikido_Scan)
+> 🔒 [Read the ESP32 snapshot security analysis →](documentation/aikido_Scan2)
 ---
 
 ## 🐱 Theme Relevance — "Coding for Kitties"
