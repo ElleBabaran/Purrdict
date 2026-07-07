@@ -184,8 +184,8 @@ const handler = createMcpHandler(
         }
 
         const entries = await query(
-          "SELECT id, type, title, body, emoji, tag, created_at FROM scrapbook_entries WHERE cat_id = $1 ORDER BY created_at DESC LIMIT $2",
-          [cat_id, limit || 10]
+          "SELECT id, type, title, body, emoji, tag, created_at FROM scrapbook_entries WHERE cat_id = $1 AND owner_id = $2 ORDER BY created_at DESC LIMIT $3",
+          [cat_id, userId, limit || 10]
         );
 
         return {
