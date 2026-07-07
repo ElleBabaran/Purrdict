@@ -79,7 +79,7 @@ export default function SetupPage() {
   const [catAge, setCatAge] = useState("");
   const photoRef = useRef<HTMLInputElement>(null);
 
-  function handleCreateCard() {
+  async function handleCreateCard() {
     if (!catName.trim()) return;
     const cat = {
       id: Date.now().toString(),
@@ -107,7 +107,7 @@ export default function SetupPage() {
       return;
     }
 
-    addCat(cat);
+    await addCat(cat);
     setStep("done");
   }
 

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backup exclusion rules for Android 12+ (API 31+)
+  Explicitly excludes sensitive data from backup, including WebView localStorage
+  that contains authentication tokens.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Exclude all app data from cloud backup -->
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <!-- Explicitly exclude WebView data containing localStorage tokens -->
+        <exclude domain="file" path="app_webview/" />
+    </cloud-backup>
+    <device-transfer>
+        <!-- Exclude all app data from device-to-device transfer -->
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <!-- Explicitly exclude WebView data containing localStorage tokens -->
+        <exclude domain="file" path="app_webview/" />
+    </device-transfer>
+</data-extraction-rules>
