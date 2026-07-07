@@ -161,6 +161,7 @@ cd purrdict
 npm install
 
 # Environment — create .env.local in the project root (see variables below)
+# IMPORTANT: JWT_SECRET is now required even for Demo Mode
 
 # Load the database schema (skip this if you're just using Demo Mode)
 psql -d purrdict -f sql/001_schema.sql
@@ -172,7 +173,8 @@ npm run dev
 Then open **http://localhost:3000**. If `DATABASE_URL` is left unset, every API route falls
 back to safe canned/empty responses ("Demo Mode") so the whole app is still browsable — the
 fastest way to try it is clicking **Demo Mode** on the landing page, which bootstraps a sample
-cat ("Whiskers") without needing a database or ESP32 at all.
+cat ("Whiskers") without needing a database or ESP32 at all. Note: As of the latest security
+update, `JWT_SECRET` must be set even in Demo Mode to prevent authentication bypass vulnerabilities.
 
 ### Environment Variables
 
@@ -182,8 +184,9 @@ Create `.env.local` in the project root:
 # Postgres / Neon connection string — omit entirely to run in Demo Mode
 DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
 
-# Secret used to sign/verify JWTs — required once DATABASE_URL is set
-JWT_SECRET=your-long-random-secret
+# Secret used to sign/verify JWTs — REQUIRED (minimum 32 characters)
+# Generate with: openssl rand -base64 32
+JWT_SECRET=your-long-random-secret-at-least-32-characters
 
 # Powers the address autocomplete on the GPS/Vet Finder pages (free tier at geoapify.com)
 GEOAPIFY_API_KEY=your-geoapify-key

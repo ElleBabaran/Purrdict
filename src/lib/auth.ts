@@ -1,25 +1,18 @@
 /**
  * Shared JWT helpers for API routes.
  *
- * Centralizes secret resolution so there is exactly one fallback value in
- * the codebase (previously every route redeclared
+ * Centralizes JWT secret management with strict validation to prevent
+ * authentication bypass vulnerabilities. Previously, routes used
  * `process.env.JWT_SECRET || "purrdict-dev-secret-change-in-prod"`, a
- * hardcoded string that is visible to anyone who reads the source. Since
- * that fallback was used to both sign and verify tokens whenever
- * JWT_SECRET wasn't set, anyone who read the code could mint a valid JWT
- * for any userId and access that user's cats/scrapbook/etc — a predictable
- * token / auth bypass, not just a "secret in source" hygiene issue).
+ * hardcoded fallback that allowed attackers to forge valid JWTs for
+ * arbitrary user IDs whenever JWT_SECRET was unset.
  *
- * The fallback is now only used in Demo Mode (no DATABASE_URL configured),
- * where there is no persistent per-user data to protect. As soon as a real
- * database is configured, JWT_SECRET becomes required — the server will
- * refuse to start if JWT_SECRET is missing in production mode.
+ * This module now requires JWT_SECRET to be explicitly set in all
+ * environments. The server will refuse to start if JWT_SECRET is missing,
+ * preventing any possibility of using a predictable fallback secret.
  */
 import { NextRequest } from "next/server";
 import jwt from "jsonwebtoken";
-import { isDbAvailable } from "@/lib/db";
-
-const DEMO_MODE_FALLBACK_SECRET = "purrdict-demo-mode-secret-no-persistent-data";
 
 /**
  * Cached JWT secret, validated at module initialization.
@@ -31,33 +24,43 @@ let secretValidated = false;
 
 /**
  * Validate and cache the JWT secret at module load time.
- * Throws immediately if DATABASE_URL is set but JWT_SECRET is missing,
- * preventing the server from starting in a misconfigured state.
+ * Throws immediately if JWT_SECRET is not set, preventing the server
+ * from starting in a misconfigured state.
+ *
+ * Security: No fallback secrets are permitted. Any fallback, even for
+ * demo/development environments, creates a risk that the predictable
+ * value could be used to forge tokens if the deployment is misconfigured.
  */
 function validateAndCacheSecret(): string {
   if (secretValidated && cachedSecret) {
     return cachedSecret;
   }
 
-  if (process.env.JWT_SECRET) {
-    cachedSecret = process.env.JWT_SECRET;
-    secretValidated = true;
-    return cachedSecret;
+  if (!process.env.JWT_SECRET) {
+    const error = new Error(
+      "FATAL: JWT_SECRET environment variable is required. " +
+      "The server cannot start without a secure JWT signing key. " +
+      "Set JWT_SECRET to a cryptographically random string (minimum 32 characters). " +
+      "Generate one with: openssl rand -base64 32"
+    );
+    console.error(error.message);
+    throw error;
   }
 
-  if (!isDbAvailable()) {
-    cachedSecret = DEMO_MODE_FALLBACK_SECRET;
-    secretValidated = true;
-    return cachedSecret;
+  // Validate minimum secret length to prevent weak secrets
+  if (process.env.JWT_SECRET.length < 32) {
+    const error = new Error(
+      "FATAL: JWT_SECRET must be at least 32 characters long. " +
+      "Current length: " + process.env.JWT_SECRET.length + ". " +
+      "Use a cryptographically random string. Generate one with: openssl rand -base64 32"
+    );
+    console.error(error.message);
+    throw error;
   }
 
-  // Production mode (DATABASE_URL set) but JWT_SECRET missing
-  const error = new Error(
-    "FATAL: JWT_SECRET environment variable must be set when DATABASE_URL is configured. " +
-    "The server cannot start without a secure JWT signing key in production mode."
-  );
-  console.error(error.message);
-  throw error;
+  cachedSecret = process.env.JWT_SECRET;
+  secretValidated = true;
+  return cachedSecret;
 }
 
 // Validate secret at module load time - fail fast if misconfigured
