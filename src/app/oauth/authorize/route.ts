@@ -359,15 +359,24 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // OAuth/SSO misconfiguration fix: the client and its redirect_uri
-    // were never re-validated on POST — only the GET handler checked
-    // them, and only when a client happened to be found. That meant an
-    // attacker could skip the GET step entirely and POST straight to
-    // this endpoint with client_id="" (or any unregistered value) and an
-    // attacker-controlled redirect_uri; the server would still
-    // authenticate the victim's password and hand back a real
-    // authorization code redirected to that attacker URI. Re-checking
-    // here closes that gap regardless of how the POST was reached.
+    // CRITICAL SECURITY: Validate that the redirect_uri from the POST form data
+    // exactly matches one of the client's registered redirect URIs. This prevents
+    // authorization code exfiltration attacks where an attacker crafts a direct
+    // POST request with their own redirect_uri, bypassing the GET validation.
+    // Without this check, the authorization code would be sent to an attacker-
+    // controlled endpoint, allowing them to redeem it for access tokens (especially
+    // dangerous for public clients with token_endpoint_auth_method: "none").
+    //
+    // This validation MUST occur before:
+    // 1. User authentication (to avoid leaking credentials)
+    // 2. Authorization code creation (to prevent binding codes to malicious URIs)
+    // 3. Any redirect (to prevent open redirect vulnerabilities)
+    //
+    // The validation is performed by resolveClientOrError, which:
+    // - Verifies the client exists in the database
+    // - Calls isRedirectUriRegistered to check the redirect_uri against the
+    //   client's registered redirect_uris array
+    // - Fails closed: returns an error if validation fails for any reason
     const { client, error: clientError } = await resolveClientOrError(clientId, redirectUri);
     if (clientError) {
       return new NextResponse(clientError, {
@@ -385,6 +394,7 @@ export async function POST(request: NextRequest) {
 
     // User denied
     if (action === "deny") {
+      // Using the validated redirectUri ensures we only redirect to registered URIs
       const denyUrl = new URL(redirectUri);
       denyUrl.searchParams.set("error", "access_denied");
       denyUrl.searchParams.set("error_description", "User denied the request");
@@ -425,16 +435,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate authorization code
+    // Note: redirectUri has been validated against the client's registered URIs
+    // by resolveClientOrError above, so it's safe to store and use for redirect
     const code = await createAuthorizationCode({
       clientId,
       userId: user.id,
-      redirectUri,
+      redirectUri, // Validated redirect_uri from form data
       scope: scope || undefined,
       codeChallenge: codeChallenge || undefined,
       codeChallengeMethod: codeChallengeMethod || "S256",
     });
 
     // Redirect back with code
+    // Using the validated redirectUri ensures the code is only sent to a
+    // registered callback URL for this client
     const callbackUrl = new URL(redirectUri);
     callbackUrl.searchParams.set("code", code);
     if (state) callbackUrl.searchParams.set("state", state);
