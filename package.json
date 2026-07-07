@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "NODE_OPTIONS='-r @aikidosec/firewall/instrument' next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_OPTIONS='-r @aikidosec/firewall/instrument' next start",
     "lint": "eslint",
     "db:migrate": "supabase db push",
     "cap:build": "set NEXT_OUTPUT=export&& next build && npx cap sync"

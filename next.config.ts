@@ -14,6 +14,7 @@ const nextConfig: NextConfig = {
     "jsonwebtoken",
     "mcp-handler",
     "@modelcontextprotocol/sdk",
+    "@neondatabase/serverless",
   ],
 
   // Security headers
