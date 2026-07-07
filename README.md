@@ -4,6 +4,30 @@
 
 **Purrdict** is an Internet of Things (IoT)-based cat monitoring platform that integrates an ESP32-CAM smart harness with a live camera feed, GPS location and distance tracking, motion sensors, and a Next.js web application (also available as an Android app through Capacitor), allowing owners to remotely monitor their cat's activities, location, behavior, emotional state, and health in real time. Unlike conventional AI pet trackers, Purrdict emphasizes live visual monitoring and accurate GPS tracking while using evidence-based detection rules supported by 17 peer-reviewed veterinary and animal behavior studies, delivering transparent, scientifically supported insights through a single dashboard.
 
+### Required Hardware
+
+- ESP32-CAM (AI Thinker)
+- MPU6050 Accelerometer + Gyroscope
+- INMP441 I2S Microphone
+- GPS Module (e.g., NEO-6M)
+- Jumper wires
+- Breadboard or custom PCB
+- USB-to-Serial programmer (for flashing the ESP32-CAM)
+- Stable Wi-Fi connection
+- Power source (battery pack or regulated power supply)
+
+### Demo Mode
+-- You can use the demo if you want
+
+Without the required hardware:
+
+- ✅ The web application, authentication, dashboard, scrapbook, reminders, and UI can still be explored.
+- ✅ Sample sensor readings and simulated behavior data are available.
+- ❌ Live camera streaming is unavailable.
+- ❌ Real-time behavior detection from sensors is unavailable.
+- ❌ GPS tracking requires an attached GPS module.
+- ❌ Motion and audio monitoring require the MPU6050 and INMP441 sensors.
+
 ---
 
 ## 📱 App Download
