@@ -34,6 +34,17 @@ export function signUserToken(payload: { userId: string; email: string }): strin
 }
 
 /**
+ * Verify a JWT token and return the decoded payload, or null if invalid.
+ */
+export function verifyToken(token: string): { userId: string; email: string } | null {
+  try {
+    return jwt.verify(token, getJwtSecret()) as { userId: string; email: string };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Extracts and verifies the userId from a request's Bearer token.
  * Returns null for any failure (missing header, invalid/expired token,
  * or a misconfigured server — never throws to the caller).
@@ -41,10 +52,6 @@ export function signUserToken(payload: { userId: string; email: string }): strin
 export function getUserId(request: NextRequest): string | null {
   const auth = request.headers.get("authorization");
   if (!auth?.startsWith("Bearer ")) return null;
-  try {
-    const decoded = jwt.verify(auth.slice(7), getJwtSecret()) as { userId: string };
-    return decoded.userId;
-  } catch {
-    return null;
-  }
+  const decoded = verifyToken(auth.slice(7));
+  return decoded?.userId ?? null;
 }
