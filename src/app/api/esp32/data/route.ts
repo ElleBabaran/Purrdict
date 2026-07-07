@@ -240,7 +240,7 @@ export async function GET(request: NextRequest) {
 
     // Get status for the device(s) linked to this cat
     const devices = await query(
-      `SELECT id, pin, is_online, last_seen, battery_pct, ip_address
+      `SELECT id, is_online, last_seen, battery_pct, ip_address
        FROM esp32_devices 
        WHERE cat_id = $1
        ORDER BY last_seen DESC NULLS LAST
