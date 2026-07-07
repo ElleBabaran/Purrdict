@@ -3,6 +3,55 @@ import http from "http";
 import { getUserId } from "@/lib/auth";
 
 /**
+ * Validates and constructs a safe URL for the ESP32 stream endpoint.
+ * Implements domain allowlisting to prevent SSRF attacks.
+ * 
+ * @param host - The hostname/domain to connect to
+ * @param port - The port number
+ * @param streamKey - Optional stream key for authentication
+ * @returns The validated URL string
+ * @throws Error if validation fails
+ */
+function buildValidatedStreamUrl(
+  host: string,
+  port: string,
+  streamKey: string | null
+): string {
+  try {
+    // Domain allowlist - only allow requests to explicitly permitted domains
+    const allowedDomains = ['example.com']; // add your allowed domains here
+    
+    // Validate port format
+    if (!/^[0-9]+$/.test(port)) {
+      throw new Error("Invalid URL");
+    }
+    
+    // Construct base URL using URL constructor for safe parsing
+    const baseUrl = `http://${host}:${port}/stream`;
+    const url = new URL(baseUrl);
+    
+    // Validate protocol (http or https only)
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("Invalid URL");
+    }
+    
+    // Validate domain against allowlist (exact match only, no subdomains)
+    if (!allowedDomains.includes(url.hostname)) {
+      throw new Error("Invalid URL");
+    }
+    
+    // Add stream key as query parameter if provided
+    if (streamKey) {
+      url.searchParams.set("key", streamKey);
+    }
+    
+    return url.toString();
+  } catch {
+    throw new Error("Invalid URL");
+  }
+}
+
+/**
  * GET /api/esp32/stream?ip=192.168.1.x&port=81&key=<esp32 STREAM_KEY>
  * 
  * Proxies the MJPEG stream from a local ESP32-CAM to the browser.
@@ -44,29 +93,16 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Basic validation — only allow private/local IPs
-  const isLocalIp =
-    ip.startsWith("192.168.") ||
-    ip.startsWith("10.") ||
-    ip.startsWith("172.16.") ||
-    ip.startsWith("172.17.") ||
-    ip.startsWith("172.18.") ||
-    ip.startsWith("172.19.") ||
-    ip.startsWith("172.2") ||
-    ip.startsWith("172.3") ||
-    ip === "localhost" ||
-    ip === "127.0.0.1";
-
-  if (!isLocalIp) {
-    return new Response(JSON.stringify({ error: "Only local network IPs are allowed" }), {
-      status: 403,
+  // Validate and construct the stream URL with SSRF protection
+  let streamUrl: string;
+  try {
+    streamUrl = buildValidatedStreamUrl(ip, port, streamKey);
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid URL" }), {
+      status: 400,
       headers: { "Content-Type": "application/json" },
     });
   }
-
-  const streamUrl = streamKey
-    ? `http://${ip}:${port}/stream?key=${encodeURIComponent(streamKey)}`
-    : `http://${ip}:${port}/stream`;
 
   // Use Node's raw http module instead of fetch() for this proxy.
   // fetch()'s undici client repeatedly failed on this long-lived MJPEG
