@@ -205,6 +205,7 @@ function respondWithSnapshot(buffer: Buffer | null, snapshotTime: number) {
       headers: {
         "Content-Type": "image/jpeg",
         "Cache-Control": "no-cache, no-store, must-revalidate",
+        "X-Content-Type-Options": "nosniff",
         "X-Snapshot-Age": "none",
         // SECURITY: No CORS headers - this endpoint requires authentication
         // and should only be accessed same-origin from the authenticated dashboard
@@ -222,6 +223,7 @@ function respondWithSnapshot(buffer: Buffer | null, snapshotTime: number) {
     headers: {
       "Content-Type": "image/jpeg",
       "Cache-Control": "no-cache, no-store, must-revalidate",
+      "X-Content-Type-Options": "nosniff",
       "X-Snapshot-Time": snapshotTime.toString(),
       "X-Snapshot-Age": `${Math.round((Date.now() - snapshotTime) / 1000)}s`,
     },
