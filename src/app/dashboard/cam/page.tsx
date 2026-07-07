@@ -14,7 +14,7 @@ import { useAuth } from "@/lib/AuthContext";
 const POLL_INTERVAL_MS = 800; // ~1.25 FPS refresh — matches ~2 FPS push rate closely enough
 
 export default function CamPage() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const catName = user?.cats[0]?.name || "Your Cat";
   const [currentTime, setCurrentTime] = useState("");
   const [snapshotUrl, setSnapshotUrl] = useState("");
@@ -38,11 +38,18 @@ export default function CamPage() {
 
   // Poll the snapshot endpoint for the latest pushed frame
   useEffect(() => {
+    if (!token) return; // Don't poll without authentication
+
     let cancelled = false;
 
     async function poll() {
       try {
-        const res = await fetch(`/api/esp32/snapshot?_t=${Date.now()}`, { cache: "no-store" });
+        const res = await fetch(`/api/esp32/snapshot?_t=${Date.now()}`, { 
+          cache: "no-store",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
         if (cancelled) return;
 
         const ageHeader = res.headers.get("X-Snapshot-Age");
@@ -73,7 +80,7 @@ export default function CamPage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [token]);
 
   // If the last successful frame is getting old (device likely stopped
   // pushing), flip to "stale" so the UI reflects it without waiting for
