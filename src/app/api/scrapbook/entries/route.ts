@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import jwt from "jsonwebtoken";
 import { query, isDbAvailable } from "@/lib/db";
-
-const JWT_SECRET = process.env.JWT_SECRET || "purrdict-dev-secret-change-in-prod";
+import { getUserId } from "@/lib/auth";
 
 export const maxDuration = 60;
 
@@ -16,17 +14,6 @@ export const maxDuration = 60;
 // under the cap with real margin for the query text/params.
 const MAX_RAW_MEDIA_SIZE = 8 * 1024 * 1024;
 const MAX_MEDIA_SIZE = MAX_RAW_MEDIA_SIZE * 1.37; // ~11MB base64
-
-function getUserId(request: NextRequest): string | null {
-  const auth = request.headers.get("authorization");
-  if (!auth?.startsWith("Bearer ")) return null;
-  try {
-    const decoded = jwt.verify(auth.slice(7), JWT_SECRET) as { userId: string };
-    return decoded.userId;
-  } catch {
-    return null;
-  }
-}
 
 // GET /api/scrapbook/entries?bookId=xxx — List entries for a book
 export async function GET(request: NextRequest) {

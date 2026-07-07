@@ -1,19 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import jwt from "jsonwebtoken";
 import { query, isDbAvailable } from "@/lib/db";
-
-const JWT_SECRET = process.env.JWT_SECRET || "purrdict-dev-secret-change-in-prod";
-
-function getUserId(request: NextRequest): string | null {
-  const auth = request.headers.get("authorization");
-  if (!auth?.startsWith("Bearer ")) return null;
-  try {
-    const decoded = jwt.verify(auth.slice(7), JWT_SECRET) as { userId: string };
-    return decoded.userId;
-  } catch {
-    return null;
-  }
-}
+import { getUserId } from "@/lib/auth";
 
 // GET /api/scrapbook/books — List user's scrapbook books
 export async function GET(request: NextRequest) {
