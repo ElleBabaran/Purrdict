@@ -17,7 +17,7 @@ const handler = createMcpHandler(
       "list_cats",
       "List all cats belonging to the authenticated user with their details.",
       {},
-      async () => {
+      async (_args, extra) => {
         if (!isDbAvailable()) {
           return {
             content: [{ type: "text" as const, text: JSON.stringify({ error: "Database not available" }) }],
@@ -25,10 +25,17 @@ const handler = createMcpHandler(
           };
         }
 
-        // In a real implementation we'd get userId from auth context
-        // For now return all cats (auth is handled at the route level)
+        const userId = extra.authInfo?.extra?.userId as string | undefined;
+        if (!userId) {
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify({ error: "Unauthorized" }) }],
+            isError: true,
+          };
+        }
+
         const cats = await query(
-          "SELECT id, name, emoji, breed, fur_color, age_months, esp32_connected FROM cats ORDER BY created_at LIMIT 50"
+          "SELECT id, name, emoji, breed, fur_color, age_months, esp32_connected FROM cats WHERE owner_id = $1 ORDER BY created_at LIMIT 50",
+          [userId]
         );
 
         return {
@@ -137,7 +144,7 @@ const handler = createMcpHandler(
       {
         include_done: z.boolean().optional().describe("Include completed reminders (default: false)"),
       },
-      async ({ include_done }) => {
+      async ({ include_done }, extra) => {
         if (!isDbAvailable()) {
           return {
             content: [{ type: "text" as const, text: JSON.stringify({ error: "Database not available" }) }],
@@ -145,11 +152,20 @@ const handler = createMcpHandler(
           };
         }
 
-        const doneFilter = include_done ? "" : "AND done = false";
+        const userId = extra.authInfo?.extra?.userId as string | undefined;
+        if (!userId) {
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify({ error: "Unauthorized" }) }],
+            isError: true,
+          };
+        }
 
         const reminders = await query(
-          `SELECT id, text, done, priority, category, scheduled_time, recurring, cat_id 
-           FROM reminders WHERE done = false ${doneFilter ? "" : "OR true"} ORDER BY scheduled_time ASC NULLS LAST LIMIT 50`
+          `SELECT id, text, done, priority, category, scheduled_time, recurring, cat_id
+           FROM reminders
+           WHERE owner_id = $1 ${include_done ? "" : "AND done = false"}
+           ORDER BY scheduled_time ASC NULLS LAST LIMIT 50`,
+          [userId]
         );
 
         return {
@@ -216,6 +232,7 @@ const authHandler = withMcpAuth(
       token: bearerToken,
       clientId: "purrdict-mcp",
       scopes: (result.scope || "read write").split(" "),
+      extra: { userId: result.userId },
     };
   },
   {

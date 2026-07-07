@@ -3,32 +3,25 @@ import { useState, useEffect, useRef } from "react";
 import TopBar from "@/components/nav/TopBar";
 import { useAuth } from "@/lib/AuthContext";
 
-const STORAGE_KEY = "purrdict_esp32_ip";
-const DEFAULT_IP = "192.168.1.10";
-const DEFAULT_PORT = "81";
+// Push Mode (esp32/PurrDictCam_Push): the ESP32-CAM itself POSTs JPEG
+// frames to /api/esp32/snapshot every ~500ms. The dashboard just polls
+// that endpoint for the latest frame — no direct browser -> ESP32
+// connection required, so this works even when the ESP32 and the
+// viewing device can't reach each other directly on the LAN (e.g.
+// router AP/client isolation), and it also works once the app is
+// deployed to Vercel, since the ESP32 always initiates the connection
+// outward to the server.
+const POLL_INTERVAL_MS = 800; // ~1.25 FPS refresh — matches ~2 FPS push rate closely enough
 
 export default function CamPage() {
   const { user } = useAuth();
   const catName = user?.cats[0]?.name || "Your Cat";
   const [currentTime, setCurrentTime] = useState("");
-  const [camIp, setCamIp] = useState("");
-  const [inputIp, setInputIp] = useState("");
-  const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle");
-  const [dots, setDots] = useState("");
+  const [snapshotUrl, setSnapshotUrl] = useState("");
+  const [status, setStatus] = useState<"connecting" | "connected" | "stale" | "offline">("connecting");
+  const [lastFrameAt, setLastFrameAt] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
-  const [streamUrl, setStreamUrl] = useState("");
   const imgRef = useRef<HTMLImageElement>(null);
-
-  // Load saved IP on mount and auto-connect
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    const ip = saved || DEFAULT_IP;
-    setCamIp(ip);
-    setInputIp(ip);
-    // Save default if not already saved
-    if (!saved) localStorage.setItem(STORAGE_KEY, DEFAULT_IP);
-  }, []);
 
   // Clock
   useEffect(() => {
@@ -43,85 +36,63 @@ export default function CamPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Animated dots for connecting state
+  // Poll the snapshot endpoint for the latest pushed frame
   useEffect(() => {
-    if (status !== "connecting") return;
-    const interval = setInterval(() => {
-      setDots((d) => (d.length >= 3 ? "" : d + "."));
-    }, 500);
-    return () => clearInterval(interval);
-  }, [status]);
+    let cancelled = false;
 
-  // Auto-connect when camIp changes
-  useEffect(() => {
-    if (camIp) {
-      connectToCamera(camIp);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camIp]);
+    async function poll() {
+      try {
+        const res = await fetch(`/api/esp32/snapshot?_t=${Date.now()}`, { cache: "no-store" });
+        if (cancelled) return;
 
-  // Fast-refresh snapshot loop (simulates live video via API)
-  useEffect(() => {
-    if (status !== "connected") return;
-    const interval = setInterval(() => {
-      if (imgRef.current) {
-        imgRef.current.src = `/api/esp32/snapshot?t=${Date.now()}`;
+        const ageHeader = res.headers.get("X-Snapshot-Age");
+        const noFrameYet = ageHeader === "none";
+
+        if (!res.ok || noFrameYet) {
+          setStatus((prev) => (prev === "connected" || prev === "stale" ? "offline" : "connecting"));
+          return;
+        }
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+
+        setSnapshotUrl((prevUrl) => {
+          if (prevUrl) URL.revokeObjectURL(prevUrl);
+          return url;
+        });
+        setLastFrameAt(Date.now());
+        setStatus("connected");
+      } catch {
+        if (!cancelled) setStatus((prev) => (prev === "connected" || prev === "stale" ? "offline" : "connecting"));
       }
-    }, 500);
-    return () => clearInterval(interval);
-  }, [status]);
+    }
 
-  function connectToCamera(ip: string) {
-    if (!ip.trim()) return;
+    poll();
+    const interval = setInterval(poll, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
-    setStatus("connecting");
-    setErrorMsg("");
+  // If the last successful frame is getting old (device likely stopped
+  // pushing), flip to "stale" so the UI reflects it without waiting for
+  // a failed poll.
+  useEffect(() => {
+    if (status !== "connected" || lastFrameAt === null) return;
+    const timer = setInterval(() => {
+      if (Date.now() - lastFrameAt > 5000) setStatus("stale");
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [status, lastFrameAt]);
 
-    // ESP32-CAM: MJPEG stream is typically at :81/stream (CameraWebServer default)
-    // Some firmwares serve it at :80/stream or just /stream
-    const cleanIp = ip.replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/:.*/, "");
-    
-    // Try port 81 first (default CameraWebServer stream port)
-    const url = `http://${cleanIp}:${DEFAULT_PORT}/stream`;
-    setStreamUrl(url);
-
-    // Mark as connected after 3s — MJPEG streams via <img> don't always fire onLoad
-    // but the browser will render frames as they arrive
-    const timeout = setTimeout(() => {
-      setStatus("connected");
-    }, 3000);
-
-    return () => clearTimeout(timeout);
-  }
-
-  function handleSaveIp() {
-    const ip = inputIp.trim();
-    if (!ip) return;
-    localStorage.setItem(STORAGE_KEY, ip);
-    setCamIp(ip);
-    setShowSettings(false);
-  }
-
-  function handleDisconnect() {
-    setStreamUrl("");
-    setStatus("idle");
-    setCamIp("");
-    localStorage.removeItem(STORAGE_KEY);
-    setShowSettings(true);
-  }
-
-  function handleRetry() {
-    if (camIp) connectToCamera(camIp);
-  }
-
-  // Snapshot — captures current frame from MJPEG stream
   function handleSnapshot() {
-    if (!streamUrl) return;
+    if (!snapshotUrl) return;
     const img = imgRef.current;
     if (!img) return;
     const canvas = document.createElement("canvas");
-    canvas.width = img.naturalWidth || img.width || 640;
-    canvas.height = img.naturalHeight || img.height || 480;
+    canvas.width = img.naturalWidth || img.width || 320;
+    canvas.height = img.naturalHeight || img.height || 240;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(img, 0, 0);
@@ -132,6 +103,8 @@ export default function CamPage() {
     link.click();
   }
 
+  const isLive = status === "connected" || status === "stale";
+
   return (
     <>
       <TopBar title="▸ CAT CAM" />
@@ -139,11 +112,12 @@ export default function CamPage() {
 
         {/* ── Video Feed ── */}
         <div
-          className="rounded-2xl overflow-hidden relative"
+          className="rounded-2xl overflow-hidden relative w-full"
           style={{
             border: "3px solid var(--cocoa)",
             boxShadow: "5px 5px 0 var(--cocoa)",
-            aspectRatio: "16/10",
+            aspectRatio: "4/3",
+            minHeight: "420px",
             background: "#0E0B14",
           }}
         >
@@ -164,98 +138,55 @@ export default function CamPage() {
             }}
           />
 
-          {/* Idle — no IP configured */}
-          {status === "idle" && !camIp && (
+          {/* Connecting — waiting for the first frame */}
+          {status === "connecting" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
-              <span className="text-4xl">📷</span>
-              <div className="font-pixel text-[9px] text-white/60">NO CAMERA CONFIGURED</div>
+              <div className="w-10 h-10 rounded-full border-2 border-[var(--mint)] border-t-transparent animate-spin" />
+              <div className="font-pixel text-[9px] text-[var(--mint)]">WAITING FOR CAMERA…</div>
+              <div className="text-[10px] text-white/40 text-center leading-relaxed max-w-[260px] mt-1">
+                Make sure the ESP32-CAM (Push Mode firmware) is powered on and pushing frames.
+              </div>
+            </div>
+          )}
+
+          {/* Offline — no recent frame at all */}
+          {status === "offline" && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 px-6">
+              <span className="text-3xl">📷</span>
+              <div className="font-pixel text-[8px] text-[#FF6B6B] text-center">CAMERA OFFLINE</div>
+              <div className="text-[10px] text-white/40 text-center leading-relaxed max-w-[260px]">
+                No frames received in the last 30s. Check that the ESP32-CAM is powered on, connected to WiFi, and pushing to the server.
+              </div>
               <button
                 onClick={() => setShowSettings(true)}
-                className="font-pixel text-[8px] px-4 py-2 rounded-lg text-[var(--plum)] mt-2"
-                style={{ background: "var(--mint)", boxShadow: "2px 2px 0 var(--cocoa)" }}
+                className="font-pixel text-[7px] px-3 py-2 rounded-lg text-white mt-1"
+                style={{ background: "var(--plum)", boxShadow: "2px 2px 0 var(--cocoa)" }}
               >
-                + SETUP CAM
+                HOW IT WORKS
               </button>
             </div>
           )}
 
-          {/* Connecting state */}
-          {status === "connecting" && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
-              <div className="w-10 h-10 rounded-full border-2 border-[var(--mint)] border-t-transparent animate-spin" />
-              <div className="font-pixel text-[9px] text-[var(--mint)]">
-                CONNECTING TO ESP32-CAM{dots}
-              </div>
-              <div className="font-pixel text-[6px] text-white/30 mt-1">
-                {camIp}:{DEFAULT_PORT}
-              </div>
-            </div>
-          )}
-
-          {/* Error state */}
-          {status === "error" && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 px-6">
-              <span className="text-3xl">⚠️</span>
-              <div className="font-pixel text-[8px] text-[#FF6B6B] text-center">CONNECTION FAILED</div>
-              <div className="text-[10px] text-white/40 text-center leading-relaxed max-w-[260px]">
-                {errorMsg}
-              </div>
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={handleRetry}
-                  className="font-pixel text-[7px] px-3 py-2 rounded-lg text-white"
-                  style={{ background: "var(--mint-dk)", boxShadow: "2px 2px 0 var(--cocoa)" }}
-                >
-                  RETRY
-                </button>
-                <button
-                  onClick={() => setShowSettings(true)}
-                  className="font-pixel text-[7px] px-3 py-2 rounded-lg text-white"
-                  style={{ background: "var(--plum)", boxShadow: "2px 2px 0 var(--cocoa)" }}
-                >
-                  SETTINGS
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Live Feed — fast-refreshing snapshot from API */}
-          {status === "connected" && (
+          {/* Latest pushed frame */}
+          {snapshotUrl && isLive && (
             <img
               ref={imgRef}
-              src={`/api/esp32/snapshot?t=${Date.now()}`}
-              alt="ESP32-CAM Live Feed"
+              src={snapshotUrl}
+              alt="ESP32-CAM Latest Frame"
               className="w-full h-full object-cover"
-              style={{ transition: "opacity 0.2s ease-in" }}
-            />
-          )}
-          {streamUrl && status !== "connected" && (
-            <img
-              ref={imgRef}
-              src={streamUrl}
-              alt="ESP32-CAM Live Feed"
-              className="w-full h-full object-cover"
-              style={{
-                opacity: status === "connected" ? 1 : 0.5,
-                transition: "opacity 0.5s ease-in",
-              }}
-              onLoad={() => setStatus("connected")}
-              onError={() => {
-                if (status !== "error") {
-                  setStatus("error");
-                  setErrorMsg(`Cannot reach ${camIp}. Check that the ESP32-CAM is powered on and connected to the same WiFi network.`);
-                }
-              }}
+              style={{ opacity: status === "stale" ? 0.5 : 1, transition: "opacity 0.3s ease-in" }}
             />
           )}
 
-          {/* HUD overlay when connected */}
-          {status === "connected" && (
+          {/* HUD overlay when live */}
+          {isLive && (
             <>
               <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 z-30">
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: "rgba(0,0,0,0.6)", border: "1px solid rgba(127,216,190,0.3)" }}>
-                  <span className="w-2 h-2 rounded-full bg-[#FF4444] animate-blink" />
-                  <span className="font-pixel text-[7px] text-[#FF6B6B]">● LIVE</span>
+                  <span className={`w-2 h-2 rounded-full ${status === "connected" ? "bg-[#FF4444] animate-blink" : "bg-[#FFD166]"}`} />
+                  <span className="font-pixel text-[7px] text-[#FF6B6B]">
+                    {status === "connected" ? "● LIVE" : "○ STALE"}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={{ background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.1)" }}>
                   <span className="font-pixel text-[7px] text-white/70">{catName}</span>
@@ -265,7 +196,7 @@ export default function CamPage() {
               <div className="absolute bottom-0 left-0 right-0 px-4 py-3 z-30 flex items-center justify-between" style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.7))" }}>
                 <span className="font-pixel text-[7px] text-white/80">{currentTime}</span>
                 <div className="flex items-center gap-2">
-                  <span className="font-pixel text-[6px] text-white/40">ESP32-CAM</span>
+                  <span className="font-pixel text-[6px] text-white/40">ESP32-CAM · PUSH MODE</span>
                   <span className="w-1.5 h-1.5 rounded-full bg-[#7FD8BE]" />
                 </div>
               </div>
@@ -280,10 +211,7 @@ export default function CamPage() {
               <span className="text-xl">📡</span>
               <div>
                 <div className="text-[14px] font-bold text-[var(--cocoa)]">
-                  {status === "connected" ? "Live Feed Active" : status === "connecting" ? "Connecting..." : status === "error" ? "Disconnected" : "No Camera"}
-                </div>
-                <div className="font-pixel text-[7px] text-[var(--cocoa-lt)] mt-0.5">
-                  {camIp ? `${currentTime} · ESP32-CAM · ${camIp}` : "Tap settings to configure"}
+                  {status === "connected" ? "Live Feed Active" : status === "stale" ? "Feed Stalled" : status === "offline" ? "Camera Offline" : "Connecting…"}
                 </div>
               </div>
             </div>
@@ -291,31 +219,29 @@ export default function CamPage() {
               <button
                 onClick={() => setShowSettings(true)}
                 className="w-8 h-8 rounded-full flex items-center justify-center text-sm hover:bg-[var(--cream2)] transition-colors"
-                aria-label="Camera settings"
+                aria-label="Camera info"
               >
                 ⚙️
               </button>
               <div
                 className="px-3 py-1.5 rounded-full font-pixel text-[7px]"
                 style={{
-                  background: status === "connected" ? "rgba(79,174,148,0.12)" : status === "error" ? "rgba(255,107,107,0.12)" : "rgba(255,209,102,0.12)",
-                  border: `1.5px solid ${status === "connected" ? "rgba(79,174,148,0.4)" : status === "error" ? "rgba(255,107,107,0.4)" : "rgba(255,209,102,0.4)"}`,
-                  color: status === "connected" ? "var(--mint-dk)" : status === "error" ? "#FF6B6B" : "var(--yellow)",
+                  background: status === "connected" ? "rgba(79,174,148,0.12)" : status === "offline" ? "rgba(255,107,107,0.12)" : "rgba(255,209,102,0.12)",
+                  border: `1.5px solid ${status === "connected" ? "rgba(79,174,148,0.4)" : status === "offline" ? "rgba(255,107,107,0.4)" : "rgba(255,209,102,0.4)"}`,
+                  color: status === "connected" ? "var(--mint-dk)" : status === "offline" ? "#FF6B6B" : "var(--yellow)",
                 }}
               >
-                {status === "connected" ? "● CONNECTED" : status === "error" ? "● ERROR" : status === "connecting" ? "○ PAIRING" : "○ OFFLINE"}
+                {status === "connected" ? "● CONNECTED" : status === "stale" ? "○ STALLED" : status === "offline" ? "● OFFLINE" : "○ WAITING"}
               </div>
             </div>
           </div>
         </div>
 
         {/* ── Quick Actions ── */}
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           {[
-            { emoji: "📸", label: "Snap", action: handleSnapshot, disabled: status !== "connected" },
-            { emoji: "🔄", label: "Retry", action: handleRetry, disabled: !camIp },
-            { emoji: "🔔", label: "Alert", action: () => {}, disabled: status !== "connected" },
-            { emoji: "⚙️", label: "Setup", action: () => setShowSettings(true), disabled: false },
+            { emoji: "📸", label: "Snap", action: handleSnapshot, disabled: !isLive },
+            { emoji: "ℹ️", label: "How it works", action: () => setShowSettings(true), disabled: false },
           ].map((action) => (
             <button
               key={action.label}
@@ -333,21 +259,21 @@ export default function CamPage() {
           ))}
         </div>
 
-        {/* ── Setup Help (only if no cam configured) ── */}
-        {!camIp && (
+        {/* ── Setup Help (only if offline/connecting) ── */}
+        {!isLive && (
           <div className="glass-card p-4 space-y-3">
-            <div className="font-pixel text-[8px] text-[var(--pink-dk)]">📋 HOW TO CONNECT</div>
+            <div className="font-pixel text-[8px] text-[var(--pink-dk)]">📋 HOW PUSH MODE WORKS</div>
             <div className="space-y-2 text-[11px] text-[var(--cocoa-lt)] leading-relaxed">
-              <p><strong>1.</strong> Flash your ESP32-CAM with the CameraWebServer sketch from Arduino IDE.</p>
-              <p><strong>2.</strong> Connect the ESP32-CAM to your WiFi network.</p>
-              <p><strong>3.</strong> Note the IP address shown in the Serial Monitor (e.g., 192.168.1.42).</p>
-              <p><strong>4.</strong> Enter that IP in settings. The MJPEG stream connects automatically.</p>
+              <p><strong>1.</strong> Flash the ESP32-CAM with <code>esp32/PurrDictCam_Push/PurrDictCam_Push.ino</code>.</p>
+              <p><strong>2.</strong> Set <code>SNAPSHOT_URL</code> in the sketch to this server&apos;s <code>/api/esp32/snapshot</code> endpoint (works for both local dev and a deployed Vercel URL).</p>
+              <p><strong>3.</strong> The ESP32 pushes a JPEG frame outward every ~500ms — no need for the browser to reach the ESP32 directly, so this works even across networks or behind router AP isolation.</p>
+              <p><strong>4.</strong> This page polls for the latest frame automatically once the device starts pushing.</p>
             </div>
           </div>
         )}
       </div>
 
-      {/* ══════════ SETTINGS MODAL ══════════ */}
+      {/* ══════════ INFO MODAL ══════════ */}
       {showSettings && (
         <div className="fixed inset-0 z-[100] flex items-end justify-center">
           <div
@@ -366,51 +292,26 @@ export default function CamPage() {
             <div className="px-5 pt-5 pb-3 flex items-center justify-between" style={{ borderBottom: "2px solid var(--cream2)" }}>
               <div>
                 <div className="font-pixel text-[9px] text-[var(--pink-dk)]">ESP32-CAM</div>
-                <div className="text-lg font-bold text-[var(--cocoa)]">Camera Settings</div>
+                <div className="text-lg font-bold text-[var(--cocoa)]">Push Mode</div>
               </div>
               <button onClick={() => setShowSettings(false)} className="w-8 h-8 rounded-full flex items-center justify-center text-lg hover:bg-[var(--cream2)]">✕</button>
             </div>
 
             <div className="px-5 py-4 space-y-4">
-              <div>
-                <div className="font-pixel text-[7px] text-[var(--cocoa-lt)] mb-2">ESP32-CAM IP ADDRESS</div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="192.168.1.42"
-                    value={inputIp}
-                    onChange={(e) => setInputIp(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleSaveIp()}
-                    className="flex-1 px-4 py-3 rounded-xl text-sm text-[var(--cocoa)] placeholder:text-[var(--cocoa-lt)] outline-none"
-                    style={{ background: "var(--cream2)", border: "2px solid var(--cream2)" }}
-                    aria-label="ESP32-CAM IP address"
-                  />
-                  <button
-                    onClick={handleSaveIp}
-                    className="px-4 py-3 rounded-xl font-pixel text-[8px] text-white pixel-press"
-                    style={{ background: "linear-gradient(135deg, var(--mint-dk), var(--mint))", border: "2px solid var(--cocoa)", boxShadow: "2px 2px 0 var(--cocoa)" }}
-                  >
-                    CONNECT
-                  </button>
-                </div>
-              </div>
-
-              <div className="text-[11px] text-[var(--cocoa-lt)] leading-relaxed space-y-1.5">
-                <p>Enter the IP address of your ESP32-CAM. The stream connects to:</p>
+              <div className="text-[12px] text-[var(--cocoa-lt)] leading-relaxed space-y-2">
+                <p>Unlike the older MJPEG-stream mode, Push Mode doesn&apos;t require your browser to reach the ESP32-CAM directly. Instead, the ESP32 itself sends frames <em>out</em> to this server:</p>
                 <code className="block px-3 py-2 rounded-lg text-[10px] font-mono" style={{ background: "var(--cream2)" }}>
-                  http://{inputIp || "192.168.1.10"}:{DEFAULT_PORT}/stream
+                  POST /api/esp32/snapshot
                 </code>
+                <p>This means it works even when the camera and the viewing device can&apos;t talk to each other on the local network (e.g. router client isolation), and it also works once this app is deployed — the ESP32 just needs outbound internet access to reach the server URL.</p>
               </div>
 
-              {camIp && (
-                <button
-                  onClick={handleDisconnect}
-                  className="w-full py-3 rounded-xl font-pixel text-[8px] text-[#FF6B6B] transition-all"
-                  style={{ background: "rgba(255,107,107,0.08)", border: "1.5px solid rgba(255,107,107,0.3)" }}
-                >
-                  🔌 DISCONNECT CAMERA
-                </button>
-              )}
+              <div className="p-3 rounded-lg text-[10px]" style={{ background: "rgba(0,0,0,0.05)" }}>
+                <p className="font-medium mb-1">Current Status:</p>
+                <p>• Status: <span className={status === "connected" ? "text-green-600" : status === "offline" ? "text-red-600" : "text-yellow-600"}>{status.toUpperCase()}</span></p>
+                <p>• Last frame: {lastFrameAt ? `${Math.round((Date.now() - lastFrameAt) / 1000)}s ago` : "None yet"}</p>
+                <p className="mt-2 text-[9px]">If no frame ever arrives, check the ESP32&apos;s Serial Monitor for <code>[OK] Frame sent</code> lines and confirm SNAPSHOT_URL points at this server.</p>
+              </div>
             </div>
           </div>
         </div>

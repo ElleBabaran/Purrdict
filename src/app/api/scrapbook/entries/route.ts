@@ -4,11 +4,18 @@ import { query, isDbAvailable } from "@/lib/db";
 
 const JWT_SECRET = process.env.JWT_SECRET || "purrdict-dev-secret-change-in-prod";
 
-// Allow larger request bodies for media uploads (50MB)
 export const maxDuration = 60;
 
-// Max file size: 50MB in base64
-const MAX_MEDIA_SIZE = 50 * 1024 * 1024 * 1.37; // ~68.5MB base64 for 50MB file
+// Max raw file size: 8MB. This project uses @neondatabase/serverless,
+// which sends queries over HTTP — Neon's HTTP driver caps request+response
+// payloads at 64MB total (see https://neon.com/faqs/postgres-databases-edge-environments-no-tcp-connections).
+// The previous 50MB raw limit produced a ~68.5MB base64 payload, which
+// alone exceeded that cap before even adding the rest of the SQL query —
+// uploads over that size failed silently (no thumbnail, 0:00 duration)
+// instead of surfacing a clear error. 8MB raw (~11MB base64) stays safely
+// under the cap with real margin for the query text/params.
+const MAX_RAW_MEDIA_SIZE = 8 * 1024 * 1024;
+const MAX_MEDIA_SIZE = MAX_RAW_MEDIA_SIZE * 1.37; // ~11MB base64
 
 function getUserId(request: NextRequest): string | null {
   const auth = request.headers.get("authorization");
@@ -74,9 +81,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid type." }, { status: 400 });
     }
 
-    // Validate media size
+    // Validate media size. Detailed size numbers are only logged
+    // server-side (terminal) — the frontend just gets a generic message.
     if (mediaData && mediaData.length > MAX_MEDIA_SIZE) {
-      return NextResponse.json({ error: "File too large. Max 50MB." }, { status: 400 });
+      const approxRawMB = (mediaData.length / 1.37 / (1024 * 1024)).toFixed(1);
+      console.warn(
+        `[scrapbook] Rejected oversized ${type} upload for user ${userId}, book ${bookId}: ` +
+        `~${approxRawMB}MB raw (${mediaData.length} base64 chars) exceeds the ${MAX_RAW_MEDIA_SIZE / (1024 * 1024)}MB limit ` +
+        `(kept under Neon's 64MB HTTP payload cap).`
+      );
+      return NextResponse.json({ error: "File too large. Please use a smaller file." }, { status: 400 });
     }
 
     if (!isDbAvailable()) {
@@ -92,12 +106,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Book not found." }, { status: 404 });
     }
 
-    // Get user's first cat (for cat_id FK requirement)
+    // Attach the user's first cat if they have one, purely for the MCP
+    // get_scrapbook tool (which still looks entries up by cat_id). This is
+    // optional now — cat_id was NOT NULL (see sql/004_scrapbook_cat_id_optional.sql)
+    // which meant every save failed with a 400 until the user created a
+    // cat profile, even though books/entries are organized by book_id and
+    // have nothing to do with cats.
     const cats = await query<{ id: string }>(
       "SELECT id FROM cats WHERE owner_id = $1 LIMIT 1",
       [userId]
     );
-    const catId = cats[0]?.id || null;
+    const catId = cats.length > 0 ? cats[0].id : null;
 
     const rows = await query<{ id: string; created_at: string }>(
       `INSERT INTO scrapbook_entries (owner_id, cat_id, book_id, type, title, body, emoji, tag, media_data)

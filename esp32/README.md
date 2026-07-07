@@ -1,9 +1,15 @@
 # PurrDict ESP32-CAM Firmware
 
-This firmware runs on the **AI-Thinker ESP32-CAM** module and does two things:
+This firmware runs on the **AI-Thinker ESP32-CAM** module. There are **two firmware variants** — pick the one that matches how you're running the server:
 
-1. **MJPEG Video Stream** (port 81) — viewed in the PurrDict app's Cat Cam page
-2. **Sensor Data Posting** — sends motion detection + optional temp/distance to the PurrDict API every 5 seconds
+| Variant | Sketch | Video delivery | Works with local dev? | Works with deployed (Vercel)? |
+|---|---|---|---|---|
+| **Push Mode** (recommended) | `PurrDictCam_Push/PurrDictCam_Push.ino` | ESP32 POSTs JPEG frames outward to `/api/esp32/snapshot`, dashboard polls for the latest one | Yes | Yes |
+| **Stream Mode** (legacy) | `CameraWebServer_PurrDict/CameraWebServer_PurrDict.ino` | ESP32 hosts an MJPEG stream on port 81; the app's `/api/esp32/stream` proxy fetches it | Yes (same LAN only) | **No** — the server can't reach the ESP32's private LAN IP from the internet |
+
+**Use Push Mode if the app is deployed to Vercel (or accessed from outside your home WiFi).** Stream Mode only works when the Next.js server and the ESP32 are on the exact same local network, since the proxy has to make an outbound HTTP request *to* the ESP32's `192.168.x.x` address — that address isn't reachable once the request originates from Vercel's servers.
+
+Both variants also POST periodic sensor/motion data to `/api/esp32/data`, which drives the behavior detection features (walking/playing/grooming, etc).
 
 ## Hardware
 
@@ -21,16 +27,33 @@ This firmware runs on the **AI-Thinker ESP32-CAM** module and does two things:
 
 ### 2. Configure the Firmware
 
-Open `CameraWebServer_PurrDict.ino` and change:
+**Push Mode (`PurrDictCam_Push.ino`) — recommended:**
+
+```cpp
+const char* ssid     = "YOUR_WIFI";
+const char* password = "YOUR_PASSWORD";
+
+#define USE_LOCAL_SERVER true   // true = local dev, false = deployed Vercel URL
+
+#if USE_LOCAL_SERVER
+  const char* SERVER_BASE = "http://192.168.1.100:3000"; // your PC's LAN IP
+#else
+  const char* SERVER_BASE = "https://your-app.vercel.app";
+#endif
+```
+
+Flip `USE_LOCAL_SERVER` and re-flash whenever you switch between testing locally and pointing at the deployed site — no other code changes needed.
+
+**Stream Mode (`CameraWebServer_PurrDict.ino`) — local network only:**
 
 ```cpp
 const char* WIFI_SSID     = "YOUR_WIFI";         // Your WiFi name
 const char* WIFI_PASS     = "YOUR_PASSWORD";      // Your WiFi password
 const char* SERVER_URL    = "http://192.168.1.100:3000/api/esp32/data"; // PurrDict server
-const char* DEVICE_PIN    = "ABC123";             // 6-char PIN from the app
+const char* DEVICE_ID     = "ESP32CAM";
 ```
 
-**For SERVER_URL:** Use the IP of the computer running PurrDict. Find it with:
+**For SERVER_URL / SERVER_BASE:** Use the IP of the computer running PurrDict. Find it with:
 - Windows: `ipconfig` → look for IPv4 Address
 - Mac/Linux: `ifconfig` or `ip addr`
 

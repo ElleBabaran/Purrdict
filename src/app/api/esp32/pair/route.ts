@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTemporalClient, PURRDICT_TASK_QUEUE } from "@/temporal/client";
+import { query, queryOne, isDbAvailable } from "@/lib/db";
 
 /**
  * POST /api/esp32/pair
- * Starts the ESP32 pairing workflow via Temporal.
+ * Verifies a device PIN and claims it for the given owner/cat.
  * Body: { pin: string, ownerId: string, catId: string }
  */
 export async function POST(request: NextRequest) {
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { pin, ownerId, catId } = body;
 
-    // Input validation (Aikido Zen also protects against injection here)
+    // Input validation
     if (!pin || typeof pin !== "string" || pin.length !== 6) {
       return NextResponse.json(
         { error: "Invalid PIN. Must be exactly 6 characters." },
@@ -33,27 +33,47 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const client = await getTemporalClient();
+    const normalizedPin = pin.toUpperCase();
 
-    // Start the durable pairing workflow
-    const handle = await client.workflow.start("pairEsp32Workflow", {
-      args: [{ pin: pin.toUpperCase(), ownerId, catId }],
-      taskQueue: PURRDICT_TASK_QUEUE,
-      workflowId: `pair-esp32-${ownerId}-${pin}`,
-    });
-
-    // Wait for result (this is a short workflow, ~5s)
-    const result = await handle.result();
-
-    if (result.success) {
-      return NextResponse.json({ success: true, deviceId: result.deviceId });
-    } else {
-      return NextResponse.json({ success: false, error: result.error }, { status: 404 });
+    if (!isDbAvailable()) {
+      // Demo mode — pretend pairing succeeded
+      return NextResponse.json({ success: true, deviceId: "demo-device" });
     }
+
+    // Step 1: Verify the PIN exists
+    const device = await queryOne<{ id: string }>(
+      "SELECT id FROM esp32_devices WHERE pin = $1",
+      [normalizedPin]
+    );
+
+    if (!device) {
+      return NextResponse.json(
+        { success: false, error: "Invalid PIN. Device not found." },
+        { status: 404 }
+      );
+    }
+
+    // Step 2: Claim the device for this owner + cat
+    const claimed = await query(
+      `UPDATE esp32_devices
+       SET owner_id = $1, cat_id = $2, is_online = true, last_seen = now()
+       WHERE id = $3
+       RETURNING id`,
+      [ownerId, catId, device.id]
+    );
+
+    if (claimed.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "Failed to claim device. It may already be paired." },
+        { status: 409 }
+      );
+    }
+
+    return NextResponse.json({ success: true, deviceId: device.id });
   } catch (error) {
     console.error("ESP32 pair error:", error);
     return NextResponse.json(
-      { error: "Failed to start pairing workflow." },
+      { error: "Failed to pair device." },
       { status: 500 }
     );
   }

@@ -1,37 +1,88 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import TopBar from "@/components/nav/TopBar";
 import GpsMap from "@/components/GpsMap";
 import { useAuth } from "@/lib/AuthContext";
+import AddressAutocomplete, { AddressSuggestion } from "@/components/AddressAutocomplete";
 
-const HOME_ADDRESS_KEY = "purrdict_home_address";
-const HOME_COORDS_KEY = "purrdict_home_coords";
+// Separate keys from the Vet Finder's home address (health/page.tsx) —
+// they used to share "purrdict_home_address"/"purrdict_home_coords",
+// which meant setting a home address in Vet Finder (just to compute
+// clinic distance) silently set up GPS tracking too, with an address
+// the owner never intended for that purpose. Now each feature keeps its
+// own home location.
+const HOME_ADDRESS_KEY = "purrdict_gps_home_address";
+const HOME_COORDS_KEY = "purrdict_gps_home_coords";
 const GEOFENCE_RADIUS = 80; // meters
+const METERS_PER_DEG_LAT = 111320;
 
-// Generate a realistic GPS path around a home point
-function generateGpsPath(home: [number, number]) {
-  const [lat, lng] = home;
-  // Small offsets to simulate cat wandering (roughly 50-80m radius)
-  const offsets = [
-    { dlat: 0, dlng: 0, label: "Home" },
-    { dlat: 0.0001, dlng: 0.0002, label: "Front yard" },
-    { dlat: 0.0003, dlng: 0.0003, label: "Sidewalk" },
-    { dlat: 0.0005, dlng: 0.0004, label: "Neighbor's fence" },
-    { dlat: 0.0007, dlng: 0.0003, label: "Under the car" },
-    { dlat: 0.0008, dlng: 0.0001, label: "Garden" },
-    { dlat: 0.0009, dlng: -0.0002, label: "Tree spot" },
-    { dlat: 0.0008, dlng: -0.0004, label: "Wall corner" },
-    { dlat: 0.0006, dlng: -0.0005, label: "Alley" },
-    { dlat: 0.0004, dlng: -0.0004, label: "Drain pipe" },
-    { dlat: 0.0002, dlng: -0.0003, label: "Back gate" },
-    { dlat: 0.0001, dlng: -0.0001, label: "Backyard" },
-    { dlat: 0, dlng: 0, label: "Home" },
-  ];
-  return offsets.map((o) => ({
-    lat: lat + o.dlat,
-    lng: lng + o.dlng,
-    label: o.label,
-  }));
+// ── Realistic movement simulation ──
+// Instead of teleporting between fixed waypoints, the cat picks a random
+// destination within roaming range, walks toward it at a mode-dependent
+// speed, then pauses to rest/groom before picking a new destination —
+// the same "random waypoint" model used to simulate animal movement.
+type WalkMode = "resting" | "grooming" | "exploring" | "walking" | "playing";
+
+const MODE_LABELS: Record<WalkMode, string> = {
+  resting: "Napping",
+  grooming: "Grooming",
+  exploring: "Exploring",
+  walking: "Walking around",
+  playing: "Playing",
+};
+
+// [min, max] speed in meters/second per activity mode
+const MODE_SPEEDS: Record<WalkMode, [number, number]> = {
+  resting: [0, 0],
+  grooming: [0, 0],
+  exploring: [0.3, 0.6],
+  walking: [0.5, 1.0],
+  playing: [1.2, 2.2],
+};
+
+function metersToLatLng(home: [number, number], dLatM: number, dLngM: number): [number, number] {
+  const lat = home[0] + dLatM / METERS_PER_DEG_LAT;
+  const lng = home[1] + dLngM / (METERS_PER_DEG_LAT * Math.cos((home[0] * Math.PI) / 180));
+  return [lat, lng];
+}
+
+function latLngToMeters(home: [number, number], point: [number, number]): [number, number] {
+  const dLatM = (point[0] - home[0]) * METERS_PER_DEG_LAT;
+  const dLngM = (point[1] - home[1]) * METERS_PER_DEG_LAT * Math.cos((home[0] * Math.PI) / 180);
+  return [dLatM, dLngM];
+}
+
+interface WalkTarget {
+  lat: number;
+  lng: number;
+  mode: WalkMode;
+  speedMps: number;
+}
+
+// Pick a new destination — mostly within the geofence, with an occasional
+// (~12%) longer excursion so the "outside geofence" alert can still trigger.
+function pickNewTarget(home: [number, number], radius: number): WalkTarget {
+  const goOutside = Math.random() < 0.12;
+  const maxR = goOutside ? radius * 1.35 : radius * 0.9;
+  const r = maxR * Math.sqrt(Math.random()); // uniform sampling within a disk
+  const angle = Math.random() * Math.PI * 2;
+  const dLatM = r * Math.sin(angle);
+  const dLngM = r * Math.cos(angle);
+  const [lat, lng] = metersToLatLng(home, dLatM, dLngM);
+
+  const activeModes: WalkMode[] = ["exploring", "walking", "playing"];
+  const mode = activeModes[Math.floor(Math.random() * activeModes.length)];
+  const [minS, maxS] = MODE_SPEEDS[mode];
+  const speedMps = minS + Math.random() * (maxS - minS);
+
+  return { lat, lng, mode, speedMps };
+}
+
+function pickRestBreak(): { mode: WalkMode; pauseMs: number } {
+  const restModes: WalkMode[] = ["resting", "grooming"];
+  const mode = restModes[Math.floor(Math.random() * restModes.length)];
+  const pauseMs = 4000 + Math.random() * 12000; // 4-16s pause
+  return { mode, pauseMs };
 }
 
 // Generate trail stops around home
@@ -60,10 +111,14 @@ export default function MapPage() {
   const [resolvedAddress, setResolvedAddress] = useState("");
 
   const [currentPos, setCurrentPos] = useState<[number, number] | null>(null);
-  const [pathIndex, setPathIndex] = useState(0);
   const [status, setStatus] = useState("At home");
   const [distance, setDistance] = useState(0);
   const [currentTime, setCurrentTime] = useState("");
+  const walkStateRef = useRef<{
+    target: WalkTarget | null;
+    pausedUntil: number;
+    pauseMode: WalkMode;
+  }>({ target: null, pausedUntil: 0, pauseMode: "resting" });
 
   // Load saved home address
   useEffect(() => {
@@ -90,27 +145,64 @@ export default function MapPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Simulate GPS movement once home is set
+  // Simulate realistic GPS movement once home is set.
+  // Model: the cat walks in a straight line toward a randomly chosen
+  // destination at a mode-dependent speed (tick-based, ~1.2m per 400ms
+  // at "walking" pace), then pauses to rest/groom before choosing a new
+  // destination — smooth continuous motion instead of teleporting
+  // between fixed waypoints.
   useEffect(() => {
     if (!homeCoords) return;
-    const gpsPath = generateGpsPath(homeCoords);
+    const TICK_MS = 400;
 
-    const interval = setInterval(() => {
-      setPathIndex((prev) => {
-        const next = (prev + 1) % gpsPath.length;
-        const point = gpsPath[next];
-        setCurrentPos([point.lat, point.lng]);
-        setStatus(point.label);
+    let pos: [number, number] = currentPos || homeCoords;
 
-        // Calculate distance from home
-        const dLat = (point.lat - homeCoords[0]) * 111320;
-        const dLng = (point.lng - homeCoords[1]) * 111320 * Math.cos(homeCoords[0] * Math.PI / 180);
-        setDistance(Math.round(Math.sqrt(dLat * dLat + dLng * dLng)));
+    const tick = () => {
+      const now = Date.now();
+      const state = walkStateRef.current;
 
-        return next;
-      });
-    }, 3000);
+      // Currently paused (resting/grooming) — just hold position.
+      if (now < state.pausedUntil) {
+        setStatus(MODE_LABELS[state.pauseMode]);
+        return;
+      }
+
+      // No active target — either just finished pausing or first run.
+      if (!state.target) {
+        state.target = pickNewTarget(homeCoords, GEOFENCE_RADIUS);
+      }
+
+      const target = state.target;
+      const [dLatM, dLngM] = latLngToMeters(pos, [target.lat, target.lng]);
+      const remainingM = Math.sqrt(dLatM * dLatM + dLngM * dLngM);
+      const stepM = target.speedMps * (TICK_MS / 1000);
+
+      if (remainingM <= stepM || remainingM < 0.5) {
+        // Arrived — snap to target, then take a rest break before the next leg.
+        pos = [target.lat, target.lng];
+        const rest = pickRestBreak();
+        state.target = null;
+        state.pausedUntil = now + rest.pauseMs;
+        state.pauseMode = rest.mode;
+        setStatus(MODE_LABELS[target.mode]);
+      } else {
+        // Move a step toward the target (linear interpolation).
+        const ratio = stepM / remainingM;
+        const [curDLatM, curDLngM] = latLngToMeters(homeCoords, pos);
+        const nextDLatM = curDLatM + (dLatM * ratio);
+        const nextDLngM = curDLngM + (dLngM * ratio);
+        pos = metersToLatLng(homeCoords, nextDLatM, nextDLngM);
+        setStatus(MODE_LABELS[target.mode]);
+      }
+
+      setCurrentPos(pos);
+      const [distLatM, distLngM] = latLngToMeters(homeCoords, pos);
+      setDistance(Math.round(Math.sqrt(distLatM * distLatM + distLngM * distLngM)));
+    };
+
+    const interval = setInterval(tick, TICK_MS);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [homeCoords]);
 
   // Geocode address — step 1: resolve and show for confirmation
@@ -125,37 +217,33 @@ export default function MapPage() {
     setResolvedAddress("");
 
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addressInput.trim())}&format=json&limit=1&addressdetails=1`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.length > 0) {
-          const lat = parseFloat(data[0].lat);
-          const lng = parseFloat(data[0].lon);
-          const displayName = data[0].display_name || addressInput.trim();
-          
-          // Check if it's a real specific address (has house number or road)
-          const addr = data[0].address || {};
-          const hasSpecificLocation = addr.house_number || addr.road || addr.building || addr.neighbourhood || addr.suburb;
-          
-          if (!hasSpecificLocation && !addr.city && !addr.town && !addr.village) {
-            setAddressError("Address too vague. Please include street name or more details.");
-            setSavingAddress(false);
-            return;
-          }
-
-          setPendingCoords([lat, lng]);
-          setResolvedAddress(displayName);
-        } else {
-          setAddressError("Address not found. Make sure the address exists and try including city/country.");
+      const res = await fetch(`/api/geocode/resolve?query=${encodeURIComponent(addressInput.trim())}`);
+      const data = await res.json();
+      if (res.ok && data.result) {
+        if (!data.result.isSpecific) {
+          setAddressError("Address too vague. Please include street name or more details.");
+          setSavingAddress(false);
+          return;
         }
+        setPendingCoords([data.result.lat, data.result.lng]);
+        setResolvedAddress(data.result.label);
       } else {
-        setAddressError("Geocoding failed. Check your connection.");
+        setAddressError("Address not found. Make sure the address exists and try including city/country.");
       }
     } catch {
       setAddressError("Network error. Try again.");
     }
     setSavingAddress(false);
   }, [addressInput]);
+
+  // Picking a suggestion from the dropdown already has coordinates —
+  // skip re-geocoding and go straight to the confirmation step.
+  function handleSelectAddressSuggestion(suggestion: AddressSuggestion) {
+    setAddressInput(suggestion.label);
+    setAddressError("");
+    setPendingCoords([suggestion.lat, suggestion.lng]);
+    setResolvedAddress(suggestion.label);
+  }
 
   // Step 2: User confirms the resolved address
   function handleConfirmAddress() {
@@ -235,16 +323,18 @@ export default function MapPage() {
             ) : (
               <>
                 <div className="font-pixel text-[7px] text-[var(--cocoa-lt)] mb-2">🏠 HOME ADDRESS</div>
-                <input
-                  type="text"
-                  placeholder="e.g. 123 Main St, Quezon City, Philippines"
-                  value={addressInput}
-                  onChange={(e) => { setAddressInput(e.target.value); setAddressError(""); }}
-                  onKeyDown={(e) => e.key === "Enter" && handleSearchAddress()}
-                  className="w-full px-4 py-3 rounded-xl text-sm text-[var(--cocoa)] placeholder:text-[var(--cocoa-lt)] outline-none focus:ring-2 focus:ring-[var(--mint-dk)] mb-3"
-                  style={{ background: "var(--cream)", border: "2.5px solid var(--cream2)" }}
-                  aria-label="Home address"
-                />
+                <div className="mb-3">
+                  <AddressAutocomplete
+                    placeholder="e.g. 123 Main St, Quezon City, Philippines"
+                    value={addressInput}
+                    onChange={(v) => { setAddressInput(v); setAddressError(""); }}
+                    onSelect={handleSelectAddressSuggestion}
+                    onKeyDown={(e) => e.key === "Enter" && handleSearchAddress()}
+                    inputClassName="w-full px-4 py-3 rounded-xl text-sm text-[var(--cocoa)] placeholder:text-[var(--cocoa-lt)] outline-none focus:ring-2 focus:ring-[var(--mint-dk)]"
+                    inputStyle={{ background: "var(--cream)", border: "2.5px solid var(--cream2)" }}
+                    aria-label="Home address"
+                  />
+                </div>
 
                 {addressError && (
                   <div className="text-[11px] text-[var(--coral)] mb-3 font-medium">{addressError}</div>

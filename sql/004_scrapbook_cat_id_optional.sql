@@ -1,0 +1,15 @@
+-- ══════════════════════════════════════════════════════════
+-- SCRAPBOOK ENTRIES — make cat_id optional
+--
+-- Entries are organized by book_id (see 003_scrapbook_books.sql), not by
+-- cat_id — a scrapbook book has no cat association at all. The original
+-- `cat_id UUID NOT NULL` constraint from 001_schema.sql predates books and
+-- forced every entry save to require an existing cat profile first, even
+-- though nothing in the scrapbook UI ever prompts the user to create one.
+-- Users who signed up and went straight to the scrapbook without adding a
+-- cat got every save silently rejected by POST /api/scrapbook/entries
+-- (400 "Add a cat profile before creating scrapbook entries"), with the
+-- entry only ever living in browser localStorage — looked saved, then
+-- disappeared on the next reload.
+-- ══════════════════════════════════════════════════════════
+ALTER TABLE scrapbook_entries ALTER COLUMN cat_id DROP NOT NULL;

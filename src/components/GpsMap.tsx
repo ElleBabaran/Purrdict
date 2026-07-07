@@ -142,18 +142,33 @@ export default function GpsMap({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (markerRef.current as any).setLatLng(currentPosition);
 
-    trailPoints.current = [...trailPoints.current, currentPosition];
+    // Cap trail length — positions now update every ~400ms for smooth
+    // movement, so without a cap this array would grow unbounded over a
+    // long session.
+    const MAX_TRAIL_POINTS = 300;
+    const nextTrail = [...trailPoints.current, currentPosition];
+    trailPoints.current = nextTrail.length > MAX_TRAIL_POINTS
+      ? nextTrail.slice(nextTrail.length - MAX_TRAIL_POINTS)
+      : nextTrail;
     if (polylineRef.current) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (polylineRef.current as any).setLatLngs(trailPoints.current);
     }
 
+    // Short pan duration so frequent live-tracking updates (every ~400ms)
+    // don't queue up long animations and look jittery.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (mapObjRef.current as any).panTo(currentPosition, { animate: true, duration: 1.5 });
+    (mapObjRef.current as any).panTo(currentPosition, { animate: true, duration: 0.4 });
   }, [currentPosition]);
 
   return (
-    <div ref={containerRef}>
+    // `position: relative` + `isolation: isolate` gives this container its
+    // own stacking context. Leaflet's internal panes (tile layer, markers,
+    // popups) use z-index values in the hundreds — without an isolated
+    // stacking context here, those could escape this container and render
+    // above other page elements (e.g. the sticky TopBar) while scrolling,
+    // which looked like the map "overlapping" the header.
+    <div ref={containerRef} style={{ position: "relative", isolation: "isolate" }}>
       <style>{`
         @keyframes gps-pulse {
           0% { box-shadow: 0 0 0 0 rgba(255,143,163,0.5); }
@@ -163,7 +178,7 @@ export default function GpsMap({
       `}</style>
       <div
         ref={mapRef}
-        style={{ width: "100%", height: 350 }}
+        style={{ width: "100%", height: 350, position: "relative", overflow: "hidden" }}
       />
     </div>
   );

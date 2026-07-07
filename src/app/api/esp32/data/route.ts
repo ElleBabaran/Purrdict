@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDbAvailable, query } from "@/lib/db";
+import { deriveEmotionScores } from "@/lib/emotion";
 
 /**
  * POST /api/esp32/data
@@ -134,6 +135,23 @@ export async function POST(request: NextRequest) {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [catId, deviceId, behavior, confidence, emoji, description, "ikurior2023", motionIntensity / 100]
       );
+
+      // Log emotion assessment derived from this behavior + motion reading
+      // (Nicholson & O'Carroll 2021 ethogram — see src/lib/emotion.ts)
+      const emotion = deriveEmotionScores(behavior, motionIntensity);
+      await query(
+        `INSERT INTO emotion_assessments
+         (cat_id, fear_score, anger_score, joy_score, contentment_score, interest_score,
+          body_posture, tail_position, ear_orientation, eye_state, vocalization, research_ref)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          catId,
+          emotion.fearScore, emotion.angerScore, emotion.joyScore,
+          emotion.contentmentScore, emotion.interestScore,
+          emotion.bodyPosture, emotion.tailPosition, emotion.earOrientation,
+          emotion.eyeState, emotion.vocalization, "nicholson2021",
+        ]
+      );
     }
 
     // Store raw sensor reading
@@ -190,6 +208,18 @@ export async function GET(request: NextRequest) {
       [limit]
     );
 
+    // Get the most recent emotion assessment (DB-backed, written alongside
+    // each behavior event — see POST handler above)
+    const emotions = await query(
+      `SELECT fear_score, anger_score, joy_score, contentment_score, interest_score,
+              body_posture, tail_position, ear_orientation, eye_state, vocalization,
+              research_ref, recorded_at
+       FROM emotion_assessments
+       ORDER BY recorded_at DESC
+       LIMIT 1`,
+      []
+    );
+
     // Get device status
     const devices = await query(
       `SELECT id, pin, is_online, last_seen, battery_pct, ip_address
@@ -202,6 +232,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       readings,
       behaviors,
+      emotion: emotions[0] || null,
       device: devices[0] || null,
     });
   } catch (error) {

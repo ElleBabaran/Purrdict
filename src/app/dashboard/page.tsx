@@ -4,6 +4,7 @@ import Link from "next/link";
 import TopBar from "@/components/nav/TopBar";
 import CatCardList from "@/components/cards/CatCardList";
 import { useAuth } from "@/lib/AuthContext";
+import { deriveEmotionScores } from "@/lib/emotion";
 
 // Research-backed behavior classifications
 // Ikurior et al. 2023 — triaxial accelerometer + Random Forest (>86% accuracy)
@@ -23,42 +24,97 @@ const DETECTED_BEHAVIORS = [
   { id: "jumping", emoji: "🦘", label: "Jumping", confidence: 0.96, color: "#FFD166", desc: "Explosive vertical acceleration spike (>2g peak on Z-axis) followed by brief freefall signature. Jump count validated against Plus Cycle monitor.", ref: "miyazaki2020" },
 ];
 
-// Emotion assessment — inferred from motion patterns (MPU6050) + activity context
-// Based on Nicholson & O'Carroll 2021 framework adapted for accelerometer data
-// Instead of facial/visual cues, we use behavioral correlates detectable by IMU
-const EMOTION_STATE = {
-  primary: "Contentment",
-  emoji: "😌",
-  confidence: 0.82,
-  indicators: [
-    { label: "Body movement", value: "Minimal — resting pattern (ODBA <0.05g)", source: "MPU6050" },
-    { label: "Posture angle", value: "Recumbent / loaf (gyro pitch <20°)", source: "MPU6050" },
-    { label: "Activity level", value: "Low (12% of daily avg)", source: "MPU6050" },
-    { label: "Location stability", value: "Stationary for 14 min", source: "GPS" },
-    { label: "Proximity sensor", value: "Near owner (INP triggered)", source: "INP" },
-    { label: "Context", value: "Post-meal rest — typical contentment pattern", source: "Circadian" },
-  ],
-  ref: "nicholson2021",
+// ── Emotion Assessment ──
+// Based on Nicholson & O'Carroll 2021's 5-emotion feline ethogram.
+// The real pipeline lives server-side in src/lib/emotion.ts and is logged
+// to the `emotion_assessments` table by POST /api/esp32/data every time a
+// behavior event is recorded — this UI just renders the latest DB row
+// (fetched below) instead of recomputing anything from the display label.
+interface DbEmotionRow {
+  fear_score: number;
+  anger_score: number;
+  joy_score: number;
+  contentment_score: number;
+  interest_score: number;
+  body_posture: string | null;
+  tail_position: string | null;
+  ear_orientation: string | null;
+  eye_state: string | null;
+  vocalization: string | null;
+  recorded_at: string;
+}
+
+const EMOTION_META: Record<string, { label: string; emoji: string }> = {
+  fear: { label: "Fear", emoji: "😨" },
+  anger: { label: "Anger / Irritation", emoji: "😠" },
+  joy: { label: "Joy / Excitement", emoji: "😸" },
+  contentment: { label: "Contentment", emoji: "😌" },
+  interest: { label: "Curiosity / Interest", emoji: "🐱" },
 };
 
-// Behavior-based wellness check (replaces Feline Grimace Scale)
-// Since we can't do facial analysis without a face-mounted camera,
-// we use motion anomaly detection as a proxy for discomfort/pain
-// Evangelista 2023 pain behavior ethogram (non-visual behavioral markers)
-const WELLNESS_UNITS = [
-  { unit: "Movement fluidity", status: "Normal gait pattern", score: 0, sensor: "MPU6050" },
-  { unit: "Activity duration", status: "Within 14-day baseline", score: 0, sensor: "MPU6050" },
-  { unit: "Posture changes", status: "Regular transitions", score: 0, sensor: "MPU6050 Gyro" },
-  { unit: "Rest disruption", status: "No abnormal waking", score: 0, sensor: "MPU6050" },
-  { unit: "Feeding behavior", status: "Normal duration (3m 20s)", score: 0, sensor: "MPU6050 + INP" },
-];
+function summarizeEmotion(row: DbEmotionRow) {
+  const scores: [string, number][] = [
+    ["fear", row.fear_score],
+    ["anger", row.anger_score],
+    ["joy", row.joy_score],
+    ["contentment", row.contentment_score],
+    ["interest", row.interest_score],
+  ];
+  const [dominantKey, dominantScore] = scores.reduce((a, b) => (b[1] > a[1] ? b : a));
+  const meta = EMOTION_META[dominantKey];
 
-// Circadian context (Piccione 2013)
-const CIRCADIAN = {
-  currentPhase: "Rest phase",
-  desc: "Low activity expected. Cats are crepuscular — peak activity at dawn (06:00-08:00) and dusk (18:00-20:00).",
-  ref: "piccione2013",
-};
+  return {
+    primary: meta.label,
+    emoji: meta.emoji,
+    confidence: dominantScore,
+    indicators: [
+      { label: "Body posture", value: row.body_posture || "Not recorded", source: "IMU" },
+      { label: "Tail position", value: row.tail_position || "Not recorded", source: "IMU" },
+      { label: "Ear orientation", value: row.ear_orientation || "Not recorded", source: "IMU" },
+      { label: "Eye state", value: row.eye_state || "Not recorded", source: "IMU" },
+      { label: "Vocalization", value: row.vocalization || "Silent", source: "Mic/IMU" },
+    ],
+  };
+}
+
+// Demo-mode fallback — used only when no DB-backed emotion row exists yet
+// (e.g. Demo Mode with no database configured). Reuses the exact same
+// scoring model as the server pipeline (src/lib/emotion.ts) so the demo
+// experience stays consistent with real data, just without persistence.
+function deriveEmotionFallback(behavior: string, motionIntensity: number) {
+  const scores = deriveEmotionScores(behavior, motionIntensity);
+  return summarizeEmotion({
+    fear_score: scores.fearScore,
+    anger_score: scores.angerScore,
+    joy_score: scores.joyScore,
+    contentment_score: scores.contentmentScore,
+    interest_score: scores.interestScore,
+    body_posture: scores.bodyPosture,
+    tail_position: scores.tailPosition,
+    ear_orientation: scores.earOrientation,
+    eye_state: scores.eyeState,
+    vocalization: scores.vocalization,
+    recorded_at: new Date().toISOString(),
+  });
+}
+
+// Circadian context — derived from current time
+function deriveCircadian() {
+  const hour = new Date().getHours();
+  if (hour >= 6 && hour < 8) {
+    return { currentPhase: "Dawn activity peak", emoji: "🌅", desc: "Crepuscular peak — cats are naturally most active at dawn. Expect increased movement, hunting play, and feeding behavior." };
+  } else if (hour >= 8 && hour < 12) {
+    return { currentPhase: "Morning rest", emoji: "☀️", desc: "Post-dawn wind-down. Activity decreasing toward midday rest period. Grooming and light exploration typical." };
+  } else if (hour >= 12 && hour < 17) {
+    return { currentPhase: "Afternoon rest", emoji: "😴", desc: "Deep rest period. Minimal activity expected. Cats sleep 12-16 hours daily — this is peak sleep time." };
+  } else if (hour >= 17 && hour < 20) {
+    return { currentPhase: "Dusk activity peak", emoji: "🌆", desc: "Crepuscular peak — second burst of activity. Hunting play, feeding, and social interaction expected." };
+  } else if (hour >= 20 && hour < 23) {
+    return { currentPhase: "Evening wind-down", emoji: "🌙", desc: "Activity decreasing. Transition to nighttime rest. Social grooming and settling behavior common." };
+  } else {
+    return { currentPhase: "Night rest", emoji: "🌙", desc: "Low activity expected. Cats are crepuscular — peak activity at dawn (06:00-08:00) and dusk (18:00-20:00)." };
+  }
+}
 
 interface Observation {
   id: string;
@@ -89,6 +145,22 @@ export default function DashboardPage() {
   const [observations, setObservations] = useState<Observation[]>([]);
   const [currentBehavior, setCurrentBehavior] = useState(DETECTED_BEHAVIORS[1]); // grooming
   const [isLive, setIsLive] = useState(true);
+  const [dbEmotion, setDbEmotion] = useState<DbEmotionRow | null>(null);
+
+  // Emotion state: prefer the DB-backed row written by POST /api/esp32/data
+  // (real pipeline). Fall back to a live-computed estimate only when no
+  // row exists yet, e.g. fresh Demo Mode session with nothing logged.
+  const emotionState = dbEmotion
+    ? summarizeEmotion(dbEmotion)
+    : deriveEmotionFallback(currentBehavior.id, currentBehavior.confidence * 100);
+  const circadian = deriveCircadian();
+  const wellnessUnits = [
+    { unit: "Movement fluidity", status: "Normal gait pattern", score: 0, sensor: "MPU6050" },
+    { unit: "Activity duration", status: "Within 14-day baseline", score: 0, sensor: "MPU6050" },
+    { unit: "Posture changes", status: "Regular transitions", score: 0, sensor: "MPU6050 Gyro" },
+    { unit: "Rest disruption", status: "No abnormal waking", score: 0, sensor: "MPU6050" },
+    { unit: "Feeding behavior", status: "Normal duration", score: 0, sensor: "MPU6050 + INP" },
+  ];
 
   // Fetch real sensor data from the ESP32 data API
   // Falls back to simulated data if API is unavailable (demo mode)
@@ -124,6 +196,14 @@ export default function DashboardPage() {
           const latest = data.behaviors[0];
           const match = DETECTED_BEHAVIORS.find(d => d.id === latest.behavior) || DETECTED_BEHAVIORS[0];
           setCurrentBehavior({ ...match, confidence: latest.confidence });
+        }
+
+        // DB-backed emotion assessment, logged alongside behavior events
+        if (data.emotion) {
+          setDbEmotion(data.emotion as DbEmotionRow);
+        }
+
+        if (data.behaviors && data.behaviors.length > 0) {
           return; // Real data loaded successfully
         }
       } catch {
@@ -254,17 +334,17 @@ export default function DashboardPage() {
               className="w-14 h-14 rounded-xl flex items-center justify-center text-3xl"
               style={{ background: "var(--cream2)", border: "2px solid var(--cocoa)" }}
             >
-              {EMOTION_STATE.emoji}
+              {emotionState.emoji}
             </div>
             <div>
-              <div className="text-xl font-bold text-[var(--cocoa)]">{EMOTION_STATE.primary}</div>
-              <div className="text-[12px] text-[var(--cocoa-lt)]">{Math.round(EMOTION_STATE.confidence * 100)}% confidence</div>
+              <div className="text-xl font-bold text-[var(--cocoa)]">{emotionState.primary}</div>
+              <div className="text-[12px] text-[var(--cocoa-lt)]">{Math.round(emotionState.confidence * 100)}% confidence</div>
             </div>
           </div>
 
           {/* Observable indicators from sensors */}
           <div className="space-y-2">
-            {EMOTION_STATE.indicators.map((ind) => (
+            {emotionState.indicators.map((ind) => (
               <div key={ind.label} className="flex items-center justify-between py-2 px-3 rounded-lg" style={{ background: "var(--cream)" }}>
                 <div className="flex items-center gap-2">
                   <span className="text-[12px] text-[var(--cocoa-lt)]">{ind.label}</span>
@@ -293,7 +373,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="space-y-1.5">
-            {WELLNESS_UNITS.map((u) => (
+            {wellnessUnits.map((u) => (
               <div key={u.unit} className="flex items-center justify-between py-1.5 px-3 rounded-lg" style={{ background: "var(--cream)" }}>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-[var(--cocoa-lt)]">{u.unit}</span>
@@ -320,8 +400,8 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3 mb-3">
             <div className="text-2xl">🌙</div>
             <div>
-              <div className="text-base font-bold text-[var(--cocoa)]">{CIRCADIAN.currentPhase}</div>
-              <div className="text-[11px] text-[var(--cocoa-lt)]">{CIRCADIAN.desc}</div>
+              <div className="text-base font-bold text-[var(--cocoa)]">{circadian.currentPhase}</div>
+              <div className="text-[11px] text-[var(--cocoa-lt)]">{circadian.desc}</div>
             </div>
           </div>
           {/* activity rhythm bar */}

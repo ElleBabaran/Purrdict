@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import TopBar from "@/components/nav/TopBar";
 import { useAuth } from "@/lib/AuthContext";
+import AddressAutocomplete, { AddressSuggestion } from "@/components/AddressAutocomplete";
 
 // Generate realistic health data that varies slightly on each load
 function generateHealthWeek() {
@@ -281,103 +282,48 @@ export default function HealthPage() {
   );
 }
 
-type VetEntry = { id: string; name: string; address: string; distance: string; rating: number; phone: string; hours: string; emoji: string; lat: number; lng: number };
+type VetEntry = {
+  id: string;
+  name: string;
+  address: string;
+  distanceMeters: number;
+  phone: string | null;
+  hours: string | null;
+  website: string | null;
+  emoji: string;
+  lat: number;
+  lng: number;
+};
 
 const HOME_ADDRESS_KEY = "purrdict_home_address";
 const HOME_COORDS_KEY = "purrdict_home_coords";
 
-// Haversine formula — calculates distance between two lat/lng points in km
-function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // Earth radius in km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+function formatDistance(meters: number): string {
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
 }
 
-function formatDistance(km: number): string {
-  if (km < 1) return `${Math.round(km * 1000)} m`;
-  if (km < 10) return `${km.toFixed(1)} km`;
-  return `${Math.round(km)} km`;
+// Calls the live /api/vets/search route (Nominatim geocoding + Overpass API
+// veterinary POI lookup) instead of a hardcoded clinic list.
+async function fetchVetsByQuery(query: string): Promise<{ vets: VetEntry[]; resolvedAddress?: string }> {
+  const res = await fetch(`/api/vets/search?query=${encodeURIComponent(query)}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Search failed");
+  return { vets: data.vets, resolvedAddress: data.resolvedAddress };
 }
 
-// Worldwide vet database — covers multiple countries/regions (with coordinates)
-const WORLDWIDE_VETS: Record<string, VetEntry[]> = {
-  "default": [
-    { id: "1", name: "Happy Paws Veterinary Clinic", address: "123 Rizal Ave, Quezon City, Philippines", distance: "0.8 km", rating: 4.8, phone: "+63 2 8123 4567", hours: "Mon-Sat 8AM-6PM", emoji: "🏥", lat: 14.6318, lng: 120.9830 },
-    { id: "2", name: "Pet Care Animal Hospital", address: "456 EDSA, Mandaluyong, Philippines", distance: "1.2 km", rating: 4.6, phone: "+63 2 8234 5678", hours: "Mon-Sun 7AM-9PM", emoji: "🐾", lat: 14.5764, lng: 121.0344 },
-    { id: "3", name: "Cat & Dog Wellness Center", address: "789 Shaw Blvd, Pasig, Philippines", distance: "2.1 km", rating: 4.9, phone: "+63 2 8345 6789", hours: "Mon-Fri 9AM-7PM", emoji: "❤️", lat: 14.5818, lng: 121.0545 },
-    { id: "4", name: "VetLink 24/7 Emergency", address: "321 Ortigas Ave, San Juan, Philippines", distance: "2.8 km", rating: 4.7, phone: "+63 2 8456 7890", hours: "Open 24 Hours", emoji: "🚨", lat: 14.5900, lng: 121.0260 },
-    { id: "5", name: "Furry Friends Vet", address: "555 Katipunan Ave, QC, Philippines", distance: "3.5 km", rating: 4.5, phone: "+63 2 8567 8901", hours: "Mon-Sat 9AM-5PM", emoji: "🐱", lat: 14.6390, lng: 121.0755 },
-  ],
-  "new york": [
-    { id: "ny1", name: "Animal Medical Center", address: "510 E 62nd St, New York, NY, USA", distance: "0.5 mi", rating: 4.7, phone: "+1 212-838-8100", hours: "Open 24 Hours", emoji: "🏥", lat: 40.7614, lng: -73.9601 },
-    { id: "ny2", name: "BluePearl Pet Hospital", address: "410 W 55th St, New York, NY, USA", distance: "1.1 mi", rating: 4.6, phone: "+1 212-767-0099", hours: "Open 24 Hours", emoji: "🚨", lat: 40.7658, lng: -73.9876 },
-    { id: "ny3", name: "Heart of Chelsea Animal Hospital", address: "257 W 18th St, New York, NY, USA", distance: "1.8 mi", rating: 4.9, phone: "+1 212-924-6116", hours: "Mon-Fri 8AM-8PM", emoji: "❤️", lat: 40.7401, lng: -73.9986 },
-    { id: "ny4", name: "Tribeca Soho Animal Hospital", address: "177 Hudson St, New York, NY, USA", distance: "2.3 mi", rating: 4.5, phone: "+1 212-925-6100", hours: "Mon-Sat 8AM-6PM", emoji: "🐾", lat: 40.7215, lng: -74.0080 },
-  ],
-  "london": [
-    { id: "ld1", name: "The Royal Veterinary College", address: "Hawkshead Lane, Hatfield, London, UK", distance: "0.3 mi", rating: 4.8, phone: "+44 1707 666333", hours: "Open 24 Hours", emoji: "🏥", lat: 51.7002, lng: -0.2069 },
-    { id: "ld2", name: "Medivet Islington", address: "343 Upper St, London N1, UK", distance: "1.0 mi", rating: 4.7, phone: "+44 20 7226 1056", hours: "Mon-Sat 9AM-7PM", emoji: "🐾", lat: 51.5448, lng: -0.1028 },
-    { id: "ld3", name: "Village Vet Hampstead", address: "88 Rosslyn Hill, London NW3, UK", distance: "1.5 mi", rating: 4.9, phone: "+44 20 7794 4948", hours: "Mon-Fri 8AM-7PM", emoji: "❤️", lat: 51.5565, lng: -0.1762 },
-    { id: "ld4", name: "Battersea Dogs & Cats Home Clinic", address: "4 Battersea Park Rd, London SW8, UK", distance: "2.4 mi", rating: 4.6, phone: "+44 20 7622 3626", hours: "Mon-Sun 9AM-5PM", emoji: "🐱", lat: 51.4760, lng: -0.1474 },
-  ],
-  "tokyo": [
-    { id: "tk1", name: "Tokyo Animal Medical Center", address: "2-5-8 Motoazabu, Minato-ku, Tokyo, Japan", distance: "0.6 km", rating: 4.8, phone: "+81 3-3452-7682", hours: "Open 24 Hours", emoji: "🏥", lat: 35.6520, lng: 139.7270 },
-    { id: "tk2", name: "Azabu Juban Animal Hospital", address: "1-3-1 Azabujuban, Minato-ku, Tokyo, Japan", distance: "1.1 km", rating: 4.7, phone: "+81 3-3456-1212", hours: "Mon-Sat 9AM-7PM", emoji: "🐾", lat: 35.6540, lng: 139.7370 },
-    { id: "tk3", name: "Japan Animal Referral Hospital", address: "2-11-1 Himonya, Meguro-ku, Tokyo, Japan", distance: "2.0 km", rating: 4.9, phone: "+81 3-5773-2828", hours: "Open 24 Hours", emoji: "🚨", lat: 35.6270, lng: 139.6940 },
-    { id: "tk4", name: "Neko Cat Clinic", address: "3-7-2 Jingumae, Shibuya-ku, Tokyo, Japan", distance: "2.8 km", rating: 4.6, phone: "+81 3-3401-5501", hours: "Mon-Fri 10AM-6PM", emoji: "🐱", lat: 35.6700, lng: 139.7080 },
-  ],
-  "sydney": [
-    { id: "sy1", name: "Sydney Animal Hospitals", address: "193 Alison Rd, Randwick NSW 2031, Australia", distance: "0.9 km", rating: 4.7, phone: "+61 2 9399 7722", hours: "Open 24 Hours", emoji: "🏥", lat: -33.9050, lng: 151.2410 },
-    { id: "sy2", name: "Bondi Junction Vet", address: "252 Oxford St, Bondi Junction NSW, Australia", distance: "1.5 km", rating: 4.6, phone: "+61 2 9387 4422", hours: "Mon-Sat 8AM-6PM", emoji: "🐾", lat: -33.8932, lng: 151.2478 },
-    { id: "sy3", name: "Inner West Vet Hospital", address: "99 Victoria Rd, Marrickville NSW, Australia", distance: "2.2 km", rating: 4.8, phone: "+61 2 9516 1466", hours: "Mon-Sun 7AM-9PM", emoji: "❤️", lat: -33.9110, lng: 151.1560 },
-    { id: "sy4", name: "Cat Only Vet Clinic", address: "33 Pacific Hwy, St Leonards NSW, Australia", distance: "3.1 km", rating: 4.9, phone: "+61 2 9436 3755", hours: "Mon-Fri 9AM-5PM", emoji: "🐱", lat: -33.8290, lng: 151.1940 },
-  ],
-  "toronto": [
-    { id: "to1", name: "VCA Canada 404 Veterinary", address: "1800 Sheppard Ave E, Toronto, ON, Canada", distance: "1.0 km", rating: 4.6, phone: "+1 416-491-1535", hours: "Mon-Sat 8AM-8PM", emoji: "🏥", lat: 43.7677, lng: -79.3350 },
-    { id: "to2", name: "Dundas West Animal Hospital", address: "2232 Dundas St W, Toronto, ON, Canada", distance: "1.7 km", rating: 4.8, phone: "+1 416-535-5005", hours: "Mon-Fri 8AM-7PM", emoji: "🐾", lat: 43.6522, lng: -79.4410 },
-    { id: "to3", name: "Toronto Emergency Vet", address: "920 Yonge St, Toronto, ON, Canada", distance: "2.3 km", rating: 4.7, phone: "+1 416-920-2002", hours: "Open 24 Hours", emoji: "🚨", lat: 43.6760, lng: -79.3880 },
-    { id: "to4", name: "Cat Clinic Toronto", address: "445 Mount Pleasant Rd, Toronto, ON, Canada", distance: "3.0 km", rating: 4.9, phone: "+1 416-487-1171", hours: "Mon-Sat 9AM-5PM", emoji: "🐱", lat: 43.7050, lng: -79.3890 },
-  ],
-  "berlin": [
-    { id: "be1", name: "Tierklinik Berlin", address: "Danziger Str. 15, 10435 Berlin, Germany", distance: "0.7 km", rating: 4.7, phone: "+49 30 4405 3670", hours: "Open 24 Hours", emoji: "🏥", lat: 52.5395, lng: 13.4180 },
-    { id: "be2", name: "Tierarztpraxis am Kollwitzplatz", address: "Kollwitzstraße 48, 10405 Berlin, Germany", distance: "1.2 km", rating: 4.8, phone: "+49 30 442 7788", hours: "Mon-Fri 9AM-7PM", emoji: "🐾", lat: 52.5340, lng: 13.4130 },
-    { id: "be3", name: "Katzen-Klinik Berlin", address: "Schönhauser Allee 10, 10119 Berlin, Germany", distance: "1.9 km", rating: 4.9, phone: "+49 30 4424 560", hours: "Mon-Sat 8AM-6PM", emoji: "🐱", lat: 52.5290, lng: 13.4050 },
-  ],
-  "singapore": [
-    { id: "sg1", name: "Mount Pleasant Veterinary Centre", address: "232 Whitley Rd, Singapore 297824", distance: "0.5 km", rating: 4.8, phone: "+65 6250 8333", hours: "Mon-Sun 8AM-10PM", emoji: "🏥", lat: 1.3250, lng: 103.8270 },
-    { id: "sg2", name: "The Animal Clinic", address: "17 Prince Charles Crescent, Singapore 159016", distance: "1.3 km", rating: 4.6, phone: "+65 6475 0080", hours: "Mon-Sat 9AM-7PM", emoji: "🐾", lat: 1.2900, lng: 103.8060 },
-    { id: "sg3", name: "Animal Recovery Centre", address: "319 Joo Chiat Pl, Singapore 427571", distance: "2.0 km", rating: 4.7, phone: "+65 6346 0006", hours: "Open 24 Hours", emoji: "🚨", lat: 1.3130, lng: 103.9020 },
-    { id: "sg4", name: "Cat Clinic Singapore", address: "79 Frankel Ave, Singapore 458210", distance: "2.8 km", rating: 4.9, phone: "+65 6448 7677", hours: "Mon-Sat 9AM-6PM", emoji: "🐱", lat: 1.3100, lng: 103.9060 },
-  ],
-};
-
-function findVetsByLocation(query: string): VetEntry[] {
-  const q = query.toLowerCase().trim();
-  for (const [key, vets] of Object.entries(WORLDWIDE_VETS)) {
-    if (key !== "default" && q.includes(key)) return vets;
-  }
-  if (q.includes("usa") || q.includes("united states") || q.includes("america")) return WORLDWIDE_VETS["new york"];
-  if (q.includes("uk") || q.includes("england") || q.includes("united kingdom")) return WORLDWIDE_VETS["london"];
-  if (q.includes("japan") || q.includes("nihon")) return WORLDWIDE_VETS["tokyo"];
-  if (q.includes("australia") || q.includes("aus")) return WORLDWIDE_VETS["sydney"];
-  if (q.includes("canada")) return WORLDWIDE_VETS["toronto"];
-  if (q.includes("germany") || q.includes("deutschland")) return WORLDWIDE_VETS["berlin"];
-  if (q.includes("philippines") || q.includes("manila") || q.includes("quezon") || q.includes("cebu") || q.includes("davao")) return WORLDWIDE_VETS["default"];
-  if (q.includes("singapore")) return WORLDWIDE_VETS["singapore"];
-  const allVets = Object.values(WORLDWIDE_VETS).flat();
-  return allVets.slice(0, 5);
+async function fetchVetsByCoords(lat: number, lng: number): Promise<{ vets: VetEntry[] }> {
+  const res = await fetch(`/api/vets/search?lat=${lat}&lng=${lng}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Search failed");
+  return { vets: data.vets };
 }
 
 function VetFinderModal({ onClose }: { onClose: () => void }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedVet, setSelectedVet] = useState<VetEntry | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const [results, setResults] = useState<VetEntry[]>([]);
   const [homeAddress, setHomeAddress] = useState("");
   const [homeCoords, setHomeCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -395,120 +341,100 @@ function VetFinderModal({ onClose }: { onClose: () => void }) {
     }
   }, []);
 
-  // Calculate distances from home and sort results
-  function getResultsWithDistance(vets: VetEntry[]): VetEntry[] {
-    if (!homeCoords) return vets;
-    return vets.map((vet) => {
-      const dist = haversineDistance(homeCoords.lat, homeCoords.lng, vet.lat, vet.lng);
-      return { ...vet, distance: formatDistance(dist) };
-    }).sort((a, b) => {
-      const aDist = haversineDistance(homeCoords.lat, homeCoords.lng, a.lat, a.lng);
-      const bDist = haversineDistance(homeCoords.lat, homeCoords.lng, b.lat, b.lng);
-      return aDist - bDist;
-    });
-  }
-
-  function handleSearch() {
+  async function handleSearch() {
     if (!searchQuery.trim()) return;
     setIsSearching(true);
+    setSearchError("");
     setSelectedVet(null);
-    setTimeout(() => {
-      const found = findVetsByLocation(searchQuery);
-      setResults(getResultsWithDistance(found));
-      setIsSearching(false);
-    }, 1000);
-  }
-
-  function handleUseMyLocation() {
-    setSearchQuery("📍 Detecting location...");
-    setIsSearching(true);
-    setSelectedVet(null);
-
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          try {
-            const { latitude, longitude } = position.coords;
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&accept-language=en`);
-            if (res.ok) {
-              const data = await res.json();
-              const city = data.address?.city || data.address?.town || data.address?.state || data.address?.country || "your area";
-              const country = data.address?.country || "";
-              const locationStr = `${city}${country ? ", " + country : ""}`;
-              setSearchQuery(locationStr);
-              // Use current position for distance if no home set
-              const coordsToUse = homeCoords || { lat: latitude, lng: longitude };
-              const found = findVetsByLocation(locationStr);
-              const withDist = found.map((vet) => {
-                const dist = haversineDistance(coordsToUse.lat, coordsToUse.lng, vet.lat, vet.lng);
-                return { ...vet, distance: formatDistance(dist) };
-              }).sort((a, b) => {
-                const aDist = haversineDistance(coordsToUse.lat, coordsToUse.lng, a.lat, a.lng);
-                const bDist = haversineDistance(coordsToUse.lat, coordsToUse.lng, b.lat, b.lng);
-                return aDist - bDist;
-              });
-              setResults(withDist);
-            } else {
-              setSearchQuery("Your current location");
-              setResults(getResultsWithDistance(findVetsByLocation("")));
-            }
-          } catch {
-            setSearchQuery("Your current location");
-            setResults(getResultsWithDistance(findVetsByLocation("")));
-          }
-          setIsSearching(false);
-        },
-        () => {
-          setSearchQuery("Location unavailable");
-          setResults(getResultsWithDistance(findVetsByLocation("")));
-          setIsSearching(false);
-        },
-        { timeout: 8000 }
-      );
-    } else {
-      setTimeout(() => {
-        setSearchQuery("Location unavailable");
-        setResults(getResultsWithDistance(findVetsByLocation("")));
-        setIsSearching(false);
-      }, 1000);
+    try {
+      const { vets } = await fetchVetsByQuery(searchQuery.trim());
+      setResults(vets);
+      if (vets.length === 0) {
+        setSearchError("No veterinary clinics found in OpenStreetMap data near that location.");
+      }
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : "Search failed. Try again.");
+      setResults([]);
     }
+    setIsSearching(false);
   }
 
-  // Geocode home address using OpenStreetMap Nominatim
+  // Picking a suggestion from the dropdown skips re-geocoding and
+  // searches directly from its known coordinates.
+  async function handleSelectSearchSuggestion(suggestion: AddressSuggestion) {
+    setSearchQuery(suggestion.label);
+    setIsSearching(true);
+    setSearchError("");
+    setSelectedVet(null);
+    try {
+      const { vets } = await fetchVetsByCoords(suggestion.lat, suggestion.lng);
+      setResults(vets);
+      if (vets.length === 0) {
+        setSearchError("No veterinary clinics found in OpenStreetMap data near that location.");
+      }
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : "Search failed. Try again.");
+      setResults([]);
+    }
+    setIsSearching(false);
+  }
+
+  // Geocode home address via /api/geocode/resolve (Photon-backed)
   async function handleSaveHome() {
     if (!homeInput.trim()) return;
     setSavingHome(true);
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(homeInput)}&format=json&limit=1`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.length > 0) {
-          const coords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-          setHomeCoords(coords);
-          setHomeAddress(homeInput.trim());
-          localStorage.setItem(HOME_ADDRESS_KEY, homeInput.trim());
-          localStorage.setItem(HOME_COORDS_KEY, JSON.stringify(coords));
-          setShowHomeSetup(false);
-          // Recalculate distances if results exist
-          if (results.length > 0) {
-            const updated = results.map((vet) => {
-              const dist = haversineDistance(coords.lat, coords.lng, vet.lat, vet.lng);
-              return { ...vet, distance: formatDistance(dist) };
-            }).sort((a, b) => {
-              const aDist = haversineDistance(coords.lat, coords.lng, a.lat, a.lng);
-              const bDist = haversineDistance(coords.lat, coords.lng, b.lat, b.lng);
-              return aDist - bDist;
-            });
-            setResults(updated);
-          }
-        } else {
-          alert("Could not find that address. Try being more specific.");
-        }
+      const res = await fetch(`/api/geocode/resolve?query=${encodeURIComponent(homeInput.trim())}`);
+      const data = await res.json();
+      if (res.ok && data.result) {
+        const coords = { lat: data.result.lat, lng: data.result.lng };
+        setHomeCoords(coords);
+        setHomeAddress(data.result.label);
+        localStorage.setItem(HOME_ADDRESS_KEY, data.result.label);
+        localStorage.setItem(HOME_COORDS_KEY, JSON.stringify(coords));
+        setShowHomeSetup(false);
+      } else {
+        alert("Could not find that address. Try being more specific.");
       }
     } catch {
       alert("Failed to geocode address. Check your connection.");
     }
     setSavingHome(false);
+  }
+
+  // Picking a suggestion from the dropdown already has coordinates, so
+  // save immediately without another geocoding round-trip.
+  function handleSelectHomeSuggestion(suggestion: AddressSuggestion) {
+    const coords = { lat: suggestion.lat, lng: suggestion.lng };
+    setHomeInput(suggestion.label);
+    setHomeCoords(coords);
+    setHomeAddress(suggestion.label);
+    localStorage.setItem(HOME_ADDRESS_KEY, suggestion.label);
+    localStorage.setItem(HOME_COORDS_KEY, JSON.stringify(coords));
+    setShowHomeSetup(false);
+  }
+
+  function handleDeleteHome() {
+    setHomeAddress("");
+    setHomeCoords(null);
+    setHomeInput("");
+    setShowHomeSetup(false);
+    localStorage.removeItem(HOME_ADDRESS_KEY);
+    localStorage.removeItem(HOME_COORDS_KEY);
+  }
+
+  // Distance from the saved home address (independent of the search origin),
+  // shown in the clinic detail view when a home address is set.
+  function distanceFromHome(vet: VetEntry): string | null {
+    if (!homeCoords) return null;
+    const R = 6371000;
+    const dLat = ((vet.lat - homeCoords.lat) * Math.PI) / 180;
+    const dLng = ((vet.lng - homeCoords.lng) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((homeCoords.lat * Math.PI) / 180) * Math.cos((vet.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return formatDistance(R * c);
   }
 
   return (
@@ -546,14 +472,14 @@ function VetFinderModal({ onClose }: { onClose: () => void }) {
         {/* Search */}
         <div className="px-5 py-3 space-y-2">
           <div className="flex gap-2">
-            <input
-              type="text"
+            <AddressAutocomplete
               placeholder="Search any city or country..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={setSearchQuery}
+              onSelect={handleSelectSearchSuggestion}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              className="flex-1 px-4 py-3 rounded-xl text-sm text-[var(--cocoa)] placeholder:text-[var(--cocoa-lt)] outline-none"
-              style={{ background: "var(--cream2)", border: "2px solid var(--cream2)" }}
+              inputClassName="w-full px-4 py-3 rounded-xl text-sm text-[var(--cocoa)] placeholder:text-[var(--cocoa-lt)] outline-none"
+              inputStyle={{ background: "var(--cream2)", border: "2px solid var(--cream2)" }}
               aria-label="Location search"
             />
             <button
@@ -566,18 +492,11 @@ function VetFinderModal({ onClose }: { onClose: () => void }) {
           </div>
           <div className="flex gap-2">
             <button
-              onClick={handleUseMyLocation}
-              className="flex-1 py-2.5 rounded-xl text-[12px] text-[var(--mint-dk)] font-medium hover:bg-[var(--cream2)] transition-colors flex items-center justify-center gap-2"
-              style={{ border: "1.5px dashed var(--mint-dk)" }}
-            >
-              📍 Use my current location
-            </button>
-            <button
               onClick={() => { setShowHomeSetup(!showHomeSetup); setHomeInput(homeAddress); }}
-              className="px-3 py-2.5 rounded-xl text-[12px] font-medium hover:bg-[var(--cream2)] transition-colors flex items-center justify-center gap-1"
+              className="flex-1 py-2.5 rounded-xl text-[12px] font-medium hover:bg-[var(--cream2)] transition-colors flex items-center justify-center gap-1"
               style={{ border: "1.5px dashed var(--plum-lt)", color: "var(--plum-lt)" }}
             >
-              🏠 {homeAddress ? "Edit" : "Set Home"}
+              🏠 {homeAddress ? "Edit Home" : "Set Home"}
             </button>
           </div>
 
@@ -589,7 +508,13 @@ function VetFinderModal({ onClose }: { onClose: () => void }) {
                 <div className="font-pixel text-[6px] text-[var(--mint-dk)]">HOME ADDRESS</div>
                 <div className="text-[11px] text-[var(--cocoa)] truncate">{homeAddress}</div>
               </div>
-              <div className="font-pixel text-[6px] text-[var(--mint-dk)]">✓ SET</div>
+              <button
+                onClick={handleDeleteHome}
+                className="font-pixel text-[6px] text-[var(--coral)] hover:opacity-70 px-1.5 py-1 rounded-md transition-opacity"
+                aria-label="Delete home address"
+              >
+                🗑 DELETE
+              </button>
             </div>
           )}
 
@@ -599,14 +524,14 @@ function VetFinderModal({ onClose }: { onClose: () => void }) {
               <div className="font-pixel text-[7px] text-[var(--cocoa-lt)]">🏠 SET YOUR HOME ADDRESS</div>
               <div className="text-[10px] text-[var(--cocoa-lt)]">Distances to vet clinics will be calculated from your home.</div>
               <div className="flex gap-2">
-                <input
-                  type="text"
+                <AddressAutocomplete
                   placeholder="e.g. 123 Main St, Quezon City, Philippines"
                   value={homeInput}
-                  onChange={(e) => setHomeInput(e.target.value)}
+                  onChange={setHomeInput}
+                  onSelect={handleSelectHomeSuggestion}
                   onKeyDown={(e) => e.key === "Enter" && handleSaveHome()}
-                  className="flex-1 px-3 py-2.5 rounded-lg text-sm text-[var(--cocoa)] placeholder:text-[var(--cocoa-lt)] outline-none"
-                  style={{ background: "var(--cream)", border: "1.5px solid var(--cocoa-lt)" }}
+                  inputClassName="w-full px-3 py-2.5 rounded-lg text-sm text-[var(--cocoa)] placeholder:text-[var(--cocoa-lt)] outline-none"
+                  inputStyle={{ background: "var(--cream)", border: "1.5px solid var(--cocoa-lt)" }}
                   aria-label="Home address input"
                 />
                 <button
@@ -619,9 +544,14 @@ function VetFinderModal({ onClose }: { onClose: () => void }) {
                 </button>
               </div>
               {homeAddress && (
-                <button onClick={() => setShowHomeSetup(false)} className="font-pixel text-[6px] text-[var(--cocoa-lt)] hover:text-[var(--cocoa)]">
-                  ← Cancel
-                </button>
+                <div className="flex items-center justify-between">
+                  <button onClick={() => setShowHomeSetup(false)} className="font-pixel text-[6px] text-[var(--cocoa-lt)] hover:text-[var(--cocoa)]">
+                    ← Cancel
+                  </button>
+                  <button onClick={handleDeleteHome} className="font-pixel text-[6px] text-[var(--coral)] hover:opacity-70">
+                    🗑 Delete home address
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -636,7 +566,17 @@ function VetFinderModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          {!isSearching && results.length === 0 && !selectedVet && (
+          {!isSearching && searchError && (
+            <div
+              className="flex items-start gap-2 px-3 py-2.5 rounded-lg mb-3"
+              style={{ background: "rgba(255,107,107,0.08)", border: "1px solid rgba(255,107,107,0.25)" }}
+            >
+              <span className="text-sm">⚠️</span>
+              <span className="text-[11px] text-[var(--coral)]">{searchError}</span>
+            </div>
+          )}
+
+          {!isSearching && results.length === 0 && !selectedVet && !searchError && (
             <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
               <span className="text-3xl">🐾</span>
               <span className="text-[12px] text-[var(--cocoa-lt)]">Search for your location to find nearby vets</span>
@@ -647,7 +587,7 @@ function VetFinderModal({ onClose }: { onClose: () => void }) {
           {!isSearching && results.length > 0 && !selectedVet && (
             <div className="space-y-2.5">
               <div className="font-pixel text-[7px] text-[var(--cocoa-lt)] mb-2">
-                {results.length} CLINICS FOUND NEARBY
+                {results.length} CLINICS FOUND NEARBY · OpenStreetMap
               </div>
               {results.map((vet) => (
                 <button
@@ -667,8 +607,8 @@ function VetFinderModal({ onClose }: { onClose: () => void }) {
                       <div className="text-[13px] font-bold text-[var(--cocoa)] truncate">{vet.name}</div>
                       <div className="text-[11px] text-[var(--cocoa-lt)] mt-0.5">{vet.address}</div>
                       <div className="flex items-center gap-3 mt-1.5">
-                        <span className="font-pixel text-[7px] text-[var(--mint-dk)]">📍 {vet.distance}</span>
-                        <span className="font-pixel text-[7px] text-[var(--yellow)]">⭐ {vet.rating}</span>
+                        <span className="font-pixel text-[7px] text-[var(--mint-dk)]">📍 {formatDistance(vet.distanceMeters)}</span>
+                        {vet.hours && <span className="font-pixel text-[7px] text-[var(--yellow)]">🕐 {vet.hours}</span>}
                       </div>
                     </div>
                   </div>
@@ -701,8 +641,7 @@ function VetFinderModal({ onClose }: { onClose: () => void }) {
                   <div>
                     <div className="text-[15px] font-bold text-[var(--cocoa)]">{selectedVet.name}</div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="font-pixel text-[7px] text-[var(--mint-dk)]">📍 {selectedVet.distance}</span>
-                      <span className="font-pixel text-[7px] text-[var(--yellow)]">⭐ {selectedVet.rating}</span>
+                      <span className="font-pixel text-[7px] text-[var(--mint-dk)]">📍 {formatDistance(selectedVet.distanceMeters)}</span>
                     </div>
                   </div>
                 </div>
@@ -711,9 +650,9 @@ function VetFinderModal({ onClose }: { onClose: () => void }) {
                 <div className="space-y-3">
                   {[
                     { icon: "📍", label: "Address", value: selectedVet.address },
-                    { icon: "🏠", label: "Distance from Home", value: homeAddress ? selectedVet.distance : "Set home address to see distance" },
-                    { icon: "📞", label: "Phone", value: selectedVet.phone },
-                    { icon: "🕐", label: "Hours", value: selectedVet.hours },
+                    { icon: "🏠", label: "Distance from Home", value: homeAddress ? (distanceFromHome(selectedVet) ?? "—") : "Set home address to see distance" },
+                    { icon: "📞", label: "Phone", value: selectedVet.phone || "Not listed on OpenStreetMap" },
+                    { icon: "🕐", label: "Hours", value: selectedVet.hours || "Not listed on OpenStreetMap" },
                   ].map((item) => (
                     <div key={item.label} className="flex items-start gap-2.5 py-2 px-3 rounded-lg" style={{ background: "var(--cream)" }}>
                       <span className="text-base flex-shrink-0 mt-0.5">{item.icon}</span>
@@ -728,17 +667,26 @@ function VetFinderModal({ onClose }: { onClose: () => void }) {
 
               {/* Action buttons */}
               <div className="grid grid-cols-2 gap-2">
-                <a
-                  href={`tel:${selectedVet.phone.replace(/\s/g, "")}`}
-                  className="flex items-center justify-center gap-2 py-3.5 rounded-xl font-pixel text-[8px] text-white pixel-press"
-                  style={{
-                    background: "linear-gradient(135deg, var(--mint-dk), var(--mint))",
-                    border: "2px solid var(--cocoa)",
-                    boxShadow: "3px 3px 0 var(--cocoa)",
-                  }}
-                >
-                  📞 CALL NOW
-                </a>
+                {selectedVet.phone ? (
+                  <a
+                    href={`tel:${selectedVet.phone.replace(/\s/g, "")}`}
+                    className="flex items-center justify-center gap-2 py-3.5 rounded-xl font-pixel text-[8px] text-white pixel-press"
+                    style={{
+                      background: "linear-gradient(135deg, var(--mint-dk), var(--mint))",
+                      border: "2px solid var(--cocoa)",
+                      boxShadow: "3px 3px 0 var(--cocoa)",
+                    }}
+                  >
+                    📞 CALL NOW
+                  </a>
+                ) : (
+                  <div
+                    className="flex items-center justify-center gap-2 py-3.5 rounded-xl font-pixel text-[8px] text-[var(--cocoa-lt)] opacity-50"
+                    style={{ background: "var(--cream2)", border: "2px solid var(--cocoa)" }}
+                  >
+                    NO PHONE LISTED
+                  </div>
+                )}
                 <a
                   href={`https://maps.google.com/?q=${encodeURIComponent(selectedVet.name + " " + selectedVet.address)}`}
                   target="_blank"

@@ -381,9 +381,30 @@ function OpenBookView({ book, onBack }: { book: ScrapBook; onBack: () => void })
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 50 * 1024 * 1024) {
-      alert("File too large. Max 50MB.");
+    // Mirrors the server's MAX_RAW_MEDIA_SIZE in api/scrapbook/entries/route.ts —
+    // kept low so the base64-inflated payload stays under Neon's 64MB HTTP
+    // request cap. Detailed size info is only logged to the terminal
+    // (console), not shown to the user beyond a plain message.
+    const MAX_RAW_MEDIA_SIZE = 8 * 1024 * 1024;
+    if (file.size > MAX_RAW_MEDIA_SIZE) {
+      console.warn(`[scrapbook] File rejected client-side: ${(file.size / (1024 * 1024)).toFixed(1)}MB exceeds the ${MAX_RAW_MEDIA_SIZE / (1024 * 1024)}MB limit.`);
+      alert("File too large. Please use a smaller file.");
       return;
+    }
+    // Most Chromium/Firefox browsers can't decode HEVC-coded .mov videos
+    // (the default recording format on iPhone) even though the MIME type
+    // still starts with "video/" — that showed up as a 0:00-duration,
+    // thumbnail-less, unplayable video after upload. Warn up front rather
+    // than let the user discover a broken entry later.
+    const isMov = file.type === "video/quicktime" || /\.mov$/i.test(file.name);
+    if (newType === "video" && isMov) {
+      const proceed = confirm(
+        "This looks like a .mov video (common on iPhone). Many browsers can't play this format after upload — it may show up with no thumbnail and won't play. Convert it to MP4 first for best results.\n\nUpload anyway?"
+      );
+      if (!proceed) {
+        e.target.value = "";
+        return;
+      }
     }
     const base64 = await fileToBase64(file);
     setMediaBase64(base64);
@@ -406,7 +427,19 @@ function OpenBookView({ book, onBack }: { book: ScrapBook; onBack: () => void })
     };
     const updated = [newEntry, ...entries];
     setEntries(updated);
-    localStorage.setItem(`purrdict_entries_${book.id}`, JSON.stringify(updated));
+    try {
+      localStorage.setItem(`purrdict_entries_${book.id}`, JSON.stringify(updated));
+    } catch (err) {
+      // Base64-encoded photos/videos can push the serialized entries past
+      // localStorage's per-origin quota (~5-10MB), which throws
+      // synchronously. Previously this was unguarded, so the throw aborted
+      // handleAdd right here — the form never closed, "saving" never reset
+      // (button stuck on "SAVING..."), and the DB sync fetch below never
+      // even ran, silently dropping the memory (most noticeable with
+      // videos, since they're the largest payloads). Caching locally is
+      // just an optimization, so a quota failure shouldn't block anything.
+      console.warn("[scrapbook] Local cache write failed (likely storage quota exceeded), continuing with DB sync:", err);
+    }
 
     setNewTitle("");
     setNewBody("");
@@ -431,7 +464,22 @@ function OpenBookView({ book, onBack }: { book: ScrapBook; onBack: () => void })
           mediaData: newEntry.media_data || null,
         }),
       });
-      if (res.ok) {
+      if (!res.ok) {
+        // Previously a non-OK response (e.g. 400 "Add a cat profile before
+        // creating scrapbook entries" when the user has no cat yet) was
+        // silently ignored here — the entry stayed in React state/
+        // localStorage only, looked saved for that session, then vanished
+        // on the next reload/reopen because it never reached the DB.
+        // Surface the real reason so the user knows it didn't persist.
+        let message = "Couldn't save this memory to the server — it's only stored on this device for now.";
+        try {
+          const data = await res.json();
+          if (data?.error) message = data.error;
+        } catch { /* ignore parse failure, use default message */ }
+        alert(message);
+        return;
+      }
+      {
         const data = await res.json();
         if (data.id && !data.id.startsWith("demo-") && !data.id.startsWith("local-")) {
           const synced = updated.map((e) => e.id === newEntry.id ? { ...e, id: data.id } : e);
@@ -482,7 +530,12 @@ function OpenBookView({ book, onBack }: { book: ScrapBook; onBack: () => void })
             <div className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-[3px] z-20 pointer-events-none" style={{ background: "linear-gradient(180deg, rgba(74,59,50,0.3), rgba(74,59,50,0.15), rgba(74,59,50,0.3))" }} />
             <div className="absolute inset-0 pointer-events-none opacity-30" style={{ backgroundImage: "radial-gradient(circle, var(--cocoa) 0.5px, transparent 0.5px)", backgroundSize: "18px 18px" }} />
 
-            <div className={`grid grid-cols-2 gap-0 min-h-[400px] transition-all duration-300 ${isFlipping ? (flipDir === "next" ? "opacity-0 translate-x-[-8px]" : "opacity-0 translate-x-[8px]") : "opacity-100 translate-x-0"}`}>
+            {/* pb-14 reserves space for the absolutely-positioned nav bar
+                below (◀ PREV / dots / NEXT ▶) — without it, that bar's
+                z-20 gradient overlay sat on top of each PageEntry's own
+                delete "✕" button, so clicks landed on the nav bar instead
+                of actually deleting the entry. */}
+            <div className={`grid grid-cols-2 gap-0 min-h-[400px] pb-14 transition-all duration-300 ${isFlipping ? (flipDir === "next" ? "opacity-0 translate-x-[-8px]" : "opacity-0 translate-x-[8px]") : "opacity-100 translate-x-0"}`}>
               <div className="p-4 flex flex-col" style={{ borderRight: "1px dashed rgba(74,59,50,0.15)" }}>
                 {spreadEntries[0] ? <PageEntry entry={spreadEntries[0]} onDelete={handleDelete} onOpen={setDetailEntry} /> : <EmptyPage side="left" />}
               </div>
@@ -552,7 +605,7 @@ function OpenBookView({ book, onBack }: { book: ScrapBook; onBack: () => void })
                   ) : (
                     <button onClick={() => fileRef.current?.click()} className="w-full py-8 rounded-xl flex flex-col items-center gap-2" style={{ background: "rgba(255,255,255,0.03)", border: "1.5px dashed rgba(255,255,255,0.15)" }}>
                       <span className="text-3xl opacity-50">{newType === "photo" ? "🖼️" : "🎞️"}</span>
-                      <span className="font-pixel text-[7px] text-white/40">TAP TO UPLOAD (max 50MB)</span>
+                      <span className="font-pixel text-[7px] text-white/40">TAP TO UPLOAD (max 8MB)</span>
                     </button>
                   )}
                   <input ref={fileRef} type="file" accept={newType === "photo" ? "image/*" : "video/*"} className="hidden" onChange={handleFileSelect} />
@@ -589,6 +642,11 @@ function OpenBookView({ book, onBack }: { book: ScrapBook; onBack: () => void })
 /* ── Page Entry ── */
 function PageEntry({ entry, onDelete, onOpen }: { entry: ScrapEntry; onDelete: (id: string) => void; onOpen: (entry: ScrapEntry) => void }) {
   const date = new Date(entry.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  // Tracks whether the browser actually failed to decode this video (e.g.
+  // an HEVC-coded .mov straight off an iPhone, which many Chromium/Firefox
+  // builds can't play without OS-level codec support). Shows a real error
+  // instead of silently rendering a blank/frozen player.
+  const [videoUnsupported, setVideoUnsupported] = useState(false);
 
   return (
     <div className="flex flex-col h-full">
@@ -610,16 +668,27 @@ function PageEntry({ entry, onDelete, onOpen }: { entry: ScrapEntry; onDelete: (
           <div className="flex-1 relative overflow-hidden">
             {entry.type === "photo" ? (
               <img src={entry.media_data} alt={entry.title} className="w-full h-full object-cover absolute inset-0" />
+            ) : videoUnsupported ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-3 text-center" style={{ background: "var(--cream2)" }}>
+                <span className="text-2xl opacity-60">⚠️</span>
+                <span className="text-[9px] text-[var(--cocoa-lt)] leading-snug">Video format not supported by this browser</span>
+              </div>
             ) : (
+              // Appending #t=0.1 makes browsers that don't auto-generate a
+              // poster frame for `data:`/blob video sources (Chrome/Edge
+              // included) seek to a fraction of a second in and paint that
+              // frame, instead of showing a blank gray box until playback
+              // starts.
               <video
-                src={entry.media_data}
+                src={`${entry.media_data}#t=0.1`}
                 className="w-full h-full object-cover absolute inset-0"
                 preload="metadata"
                 muted
                 playsInline
+                onError={() => setVideoUnsupported(true)}
               />
             )}
-            {entry.type === "video" && (
+            {entry.type === "video" && !videoUnsupported && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.9)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
                   <span className="text-[var(--pink-dk)] text-sm ml-0.5">▶</span>
@@ -650,6 +719,7 @@ function PageEntry({ entry, onDelete, onOpen }: { entry: ScrapEntry; onDelete: (
 /* ── Entry Detail Modal ── */
 function EntryDetailModal({ entry, onClose }: { entry: ScrapEntry; onClose: () => void }) {
   const date = new Date(entry.created_at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  const [videoUnsupported, setVideoUnsupported] = useState(false);
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 overflow-y-auto" style={{ background: "#1A1225" }} onClick={onClose}>
@@ -659,14 +729,29 @@ function EntryDetailModal({ entry, onClose }: { entry: ScrapEntry; onClose: () =
           <img src={entry.media_data} alt={entry.title} className="w-full max-h-[50vh] object-contain bg-black" />
         )}
         {entry.media_data && entry.type === "video" && (
-          <video
-            src={entry.media_data}
-            className="w-full max-h-[50vh]"
-            controls
-            autoPlay
-            playsInline
-            preload="metadata"
-          />
+          videoUnsupported ? (
+            <div className="w-full py-10 flex flex-col items-center justify-center gap-2 bg-black">
+              <span className="text-3xl">⚠️</span>
+              <span className="text-[12px] text-white/80 text-center px-6 leading-relaxed">
+                This browser can&apos;t play this video file. This usually happens with HEVC-encoded .mov videos recorded on iPhone — try converting it to MP4 (H.264) before uploading.
+              </span>
+            </div>
+          ) : (
+            // Browsers block unmuted autoplay — without `muted` here, the
+            // autoplay silently failed and the video just sat paused,
+            // which looked like "the video doesn't play" even though
+            // tapping the controls' own play button worked fine.
+            <video
+              src={entry.media_data}
+              className="w-full max-h-[50vh]"
+              controls
+              autoPlay
+              muted
+              playsInline
+              preload="metadata"
+              onError={() => setVideoUnsupported(true)}
+            />
+          )
         )}
 
         {/* Content */}

@@ -1,8 +1,8 @@
 # 🐾 Purrdict — Research-Backed Cat Behavior Intelligence
 
-> **#hackthekitty 2026** | Built with Next.js 16, PostgreSQL, Temporal, Aikido Zen
+> **#hackthekitty 2026** | Built with Next.js 16, PostgreSQL
 
-**Purrdict** is an IoT-powered cat monitoring platform that uses an ESP32 collar to track your cat's behavior, emotions, location, and health — grounded in peer-reviewed veterinary and ethology research.
+**Purrdict** is an IoT-powered cat monitoring platform that uses an ESP32 smart leash to track your cat's behavior, emotions, location, and health — grounded in peer-reviewed veterinary and ethology research.
 
 No guesswork. No "AI magic." Every detection method traces back to a published paper.
 
@@ -18,15 +18,18 @@ No guesswork. No "AI magic." Every detection method traces back to a published p
 
 Purrdict is built entirely around cat welfare:
 
-- **ESP32 smart collar** streams real-time accelerometer + GPS data
-- **Behavior classification** identifies sleeping, eating, grooming, playing, walking, scratching, running, drinking, jumping — based on validated sensor patterns
-- **Emotion assessment** detects fear, anger, joy, contentment, interest using observable body language indicators
-- **Pain detection** via the Feline Grimace Scale (5 facial action units)
-- **GPS tracking** with geofence alerts on a real OpenStreetMap
-- **Health monitoring** with 7-day baselines and anomaly detection
-- **Scrapbook** to capture memories in a book-style album
-- **Reminders** for feeding, vet visits, play sessions
-- **Cat cards** — create profile cards for each cat paired with a collar
+- **ESP32 smart leash** streams real-time accelerometer, gyroscope, proximity, and camera data
+- **Behavior classification** identifies sleeping, eating, grooming, playing, walking, scratching, running, drinking, jumping, sitting/alert — based on validated sensor patterns
+- **Emotion assessment** detects contentment, excitement, relaxation, curiosity, alertness using observable motion-behavior correlates
+- **Pain detection** via behavior-based wellness check (motion anomalies vs 14-day baseline, adapted from Evangelista 2023 pain behavior ethogram)
+- **GPS tracking** with home address geocoding, geofence alerts, and trail visualization on a real OpenStreetMap
+- **Health monitoring** with 7-day baselines, sensor-derived metrics, and anomaly detection
+- **Needs predictor** estimates cat's current needs (hungry, thirsty, play, rest, attention, vet) with confidence percentages
+- **Scrapbook** to capture memories in a book-style album with multiple albums, photos, videos, and notes
+- **Reminders** for feeding, vet visits, play sessions, grooming, and more
+- **Cat cards** — create profile cards for each cat paired with a leash
+- **Live camera** — MJPEG stream from ESP32-CAM with snapshot capture
+- **Vet finder** — search real veterinary clinics nearby using OpenStreetMap Overpass API
 
 Every feature exists to answer one question: *"What is my cat up to, and is she okay?"*
 
@@ -38,31 +41,26 @@ Every feature exists to answer one question: *"What is my cat up to, and is she 
 ┌─────────────────────────────────────────────────┐
 │                   FRONTEND                       │
 │  Next.js 16 + React 19 + Tailwind CSS 4         │
-│  Pages: Dashboard, Cam+GPS, Scrapbook,          │
-│         Reminders, Health, Login/Signup/Setup    │
-├─────────────────────────────────────────────────┤
-│                   API LAYER                      │
-│  /api/auth/* — JWT auth (bcrypt + jsonwebtoken)  │
-│  /api/cats — CRUD for cat profiles              │
-│  /api/esp32/pair — Temporal workflow trigger     │
-│  /api/gps/monitor — Start GPS session           │
-│  /api/reminders/schedule — Durable reminders    │
-├─────────────────────────────────────────────────┤
-│              TEMPORAL WORKFLOWS                   │
-│  pairEsp32Workflow — Device pairing with retry   │
-│  reminderSchedulerWorkflow — Durable scheduling  │
-│  gpsMonitoringWorkflow — Geofence + logging      │
-│  behaviorAnalysisWorkflow — Classify + clip      │
+│  Pages: Dashboard, Cam, GPS Map, Needs,         │
+│         Scrapbook, Reminders, Health,            │
+│         Login/Signup/Setup                       │
 ├─────────────────────────────────────────────────┤
 │                  DATABASE                         │
-│  PostgreSQL (raw pg, no ORM)                     │
+│  PostgreSQL / Neon (raw pg, no ORM)              │
 │  Tables: users, cats, esp32_devices, gps_logs,  │
-│  behavior_events, emotion_assessments,          │
-│  cam_clips, scrapbook_entries, reminders,       │
+│  behavior_events, sensor_readings,              │
+│  emotion_assessments, scrapbook_books,          │
+│  scrapbook_entries, reminders,                  │
+│  oauth_clients, oauth_codes, oauth_tokens,      │
 │  research_references                            │
 ├─────────────────────────────────────────────────┤
+│              OAUTH 2.0 / MCP                     │
+│  RFC 6749 Authorization Code + PKCE (S256)       │
+│  RFC 7591 Dynamic Client Registration           │
+│  RFC 9728 Protected Resource Metadata           │
+│  Claude Connector / MCP server support          │
+├─────────────────────────────────────────────────┤
 │                  SECURITY                        │
-│  Aikido Zen Firewall — runtime protection        │
 │  CSP headers, HSTS, XSS protection              │
 │  Parameterized queries (SQL injection safe)     │
 │  JWT auth with bcrypt (cost 12)                 │
@@ -115,17 +113,12 @@ Every detection algorithm in Purrdict is grounded in published research:
 
 ---
 
-## 🔒 Security — Aikido Zen Firewall
+## 🔒 Security
 
-Purrdict uses **Aikido Zen Firewall** for runtime application security:
-
-- ✅ SQL injection protection (all queries parameterized)
+- ✅ SQL injection protection (all queries parameterized, no string-concatenated SQL)
 - ✅ XSS protection via CSP headers
-- ✅ SSRF prevention
-- ✅ Path traversal blocking
-- ✅ Rate limiting on auth endpoints
+- ✅ SSRF prevention on the ESP32 stream proxy (only private/local IP ranges accepted)
 - ✅ HSTS + secure headers
-- ✅ Bot blocking capability
 - ✅ Input validation on all API routes
 - ✅ JWT with bcrypt (cost 12) for auth
 - ✅ PIN sanitization (alphanumeric only)
@@ -142,42 +135,6 @@ Content-Security-Policy: [strict policy]
 Permissions-Policy: camera=(self), microphone=(self), geolocation=(self)
 ```
 
-### Running Aikido Scan
-
-```bash
-# Set your Aikido token
-export AIKIDO_TOKEN=AIK_RUNTIME_xxx
-
-# Start in detection mode (recommended first)
-AIKIDO_BLOCK=false npm start
-
-# After validation, enable blocking
-AIKIDO_BLOCK=true npm start
-```
-
-> 📊 Include your Aikido scan report screenshot in your submission.
-
----
-
-## ⏳ Temporal — Durable Execution
-
-Purrdict uses **Temporal** for workflows that must not fail:
-
-| Workflow | Purpose | Durability |
-|----------|---------|-----------|
-| `pairEsp32Workflow` | Verify PIN → claim device → link to cat | Retries 5x with backoff |
-| `reminderSchedulerWorkflow` | Check due → notify → create next recurrence | Survives server restarts |
-| `gpsMonitoringWorkflow` | Log GPS every 10s → check geofence → alert | Runs for hours continuously |
-| `behaviorAnalysisWorkflow` | Classify behavior → log → auto-save clip | Exactly-once processing |
-
-```bash
-# Start Temporal server (dev)
-temporal server start-dev
-
-# Start the worker
-npm run temporal:worker
-```
-
 ---
 
 ## 🚀 Quick Start
@@ -185,9 +142,8 @@ npm run temporal:worker
 ### Prerequisites
 
 - Node.js 18+
-- PostgreSQL 14+
-- (Optional) Temporal CLI
-- (Optional) Aikido account
+- PostgreSQL 14+ (or Neon serverless)
+- (Optional) ESP32-CAM + MPU6050 + GPS module hardware
 
 ### Setup
 
@@ -215,9 +171,7 @@ npm run dev
 ```env
 DATABASE_URL=postgres://purrdict:password@localhost:5432/purrdict
 JWT_SECRET=your-long-random-secret
-AIKIDO_TOKEN=AIK_RUNTIME_xxx
-AIKIDO_BLOCK=false
-TEMPORAL_ADDRESS=localhost:7233
+NEXT_PUBLIC_BASE_URL=http://localhost:3000
 ```
 
 ---
@@ -227,40 +181,36 @@ TEMPORAL_ADDRESS=localhost:7233
 ```
 src/
 ├── app/
-│   ├── api/
-│   │   ├── auth/login/       — JWT login
-│   │   ├── auth/signup/      — User registration
-│   │   ├── cats/             — Cat CRUD
-│   │   ├── cats/[id]/        — Update/delete cat
-│   │   ├── esp32/pair/       — Temporal pairing workflow
-│   │   ├── gps/monitor/      — GPS monitoring workflow
-│   │   └── reminders/schedule/ — Reminder scheduling
+│   ├── api/                      — Backend route handlers (auth, cats, esp32, gps, reminders, scrapbook, vets, mcp)
 │   ├── dashboard/
-│   │   ├── page.tsx          — Behavior observations (research-backed)
-│   │   ├── cam/              — ESP32 camera + GPS map
-│   │   ├── health/           — Health monitor
-│   │   ├── reminders/        — Todo/reminders
-│   │   └── scrapbook/        — Photo album (book style)
-│   ├── login/                — Login page
-│   ├── signup/               — Registration page
-│   └── setup/                — Onboarding (PIN → name → card)
+│   │   ├── page.tsx              — Live behavior + emotion + wellness
+│   │   ├── cam/                  — ESP32-CAM live MJPEG stream
+│   │   ├── map/                  — GPS tracker + geofence map
+│   │   ├── health/               — Health monitor + vet finder
+│   │   ├── needs/                — Needs predictor
+│   │   ├── reminders/            — Todo/reminders
+│   │   └── scrapbook/            — Photo album (book style)
+│   ├── login/                    — Login page
+│   ├── signup/                   — Registration page
+│   └── setup/                    — Onboarding (IP connect → name → card)
 ├── components/
-│   ├── cards/CatCardList.tsx — Cat profile cards with edit
-│   ├── GpsMap.tsx            — Real Leaflet/OSM map
-│   ├── nav/                  — TopBar + BottomNav
-│   └── landing/              — Landing page sections
+│   ├── cards/CatCardList.tsx     — Cat profile cards with edit
+│   ├── CatRoom.tsx               — Cat room visualization
+│   ├── GpsMap.tsx                — Real Leaflet/OSM map
+│   ├── PixelCat.tsx              — Pixel art cat animation
+│   ├── TutorialOverlay.tsx       — First-time user tutorial
+│   ├── nav/                      — TopBar + BottomNav
+│   └── landing/                  — Landing page sections
 ├── lib/
-│   ├── AuthContext.tsx       — Auth state + cat CRUD
-│   ├── db.ts                 — PostgreSQL pool (pg)
-│   └── mockData.ts           — Demo data
-├── temporal/
-│   ├── activities.ts         — DB operations
-│   ├── workflows.ts          — Durable orchestrations
-│   ├── client.ts             — Temporal client helper
-│   └── worker.ts             — Temporal worker process
-└── instrumentation.ts        — Aikido Zen loader
+│   ├── AuthContext.tsx           — Auth state + cat CRUD
+│   ├── db.ts                     — PostgreSQL pool (pg)
+│   ├── emotion.ts                — Emotion scoring (Nicholson 2021 ethogram)
+│   ├── mockData.ts               — Demo data for needs predictor
+│   └── oauth.ts                  — OAuth 2.0 Authorization Server
 sql/
-└── 001_schema.sql            — Full PostgreSQL schema + research refs
+└── 001_schema.sql                — Full PostgreSQL schema + research refs
+esp32/
+└── README.md                     — ESP32 firmware docs
 ```
 
 ---
@@ -271,12 +221,14 @@ sql/
 |-------|-----------|
 | Frontend | Next.js 16, React 19, Tailwind CSS 4 |
 | Auth | bcryptjs + jsonwebtoken (JWT) |
-| Database | PostgreSQL + `pg` (raw SQL, parameterized) |
-| Maps | Leaflet + OpenStreetMap (CartoDB dark tiles) |
-| Workflows | Temporal TypeScript SDK |
-| Security | Aikido Zen Firewall |
+| Database | PostgreSQL / Neon + `pg` (raw SQL, parameterized) |
+| Maps | Leaflet.js + OpenStreetMap (CartoDB dark tiles) |
+| Vet Search | OpenStreetMap Nominatim (geocoding) + Overpass API (live clinic search) |
+| Security | CSP/HSTS security headers, parameterized SQL, JWT + bcrypt |
+| MCP | OAuth 2.0 (RFC 6749/7591/7636/9728) + MCP transport |
 | Deployment | Vercel / any Node.js host |
 | Mobile | Capacitor (Android ready) |
+| Hardware | ESP32-CAM, MPU6050, GPS module, INP sensor |
 
 ---
 
@@ -284,16 +236,19 @@ sql/
 
 - 🔐 **Auth** — Login, signup, JWT sessions, sign out
 - 🐱 **Cat Cards** — Create, edit, delete cat profiles with photo upload
-- 📡 **ESP32 Pairing** — 6-digit PIN connection with retry logic
-- 📊 **Live Observations** — Behavior detection feed from collar sensors
-- 😌 **Emotion Assessment** — 5 primary feline emotions with indicators
-- 😺 **Feline Grimace Scale** — Pain detection via 5 action units
-- 🌙 **Circadian Awareness** — Activity predictions based on dawn/dusk patterns
-- 📷 **Spy Cam** — ESP32 camera with recording, snapshots, audio
-- 🗺️ **GPS Tracker** — Real OpenStreetMap with geofence alerts
-- 📖 **Scrapbook** — Book-style album with pages, photos, videos, notes
-- 🔔 **Reminders** — Categorized tasks with recurring schedules
-- ❤️ **Health Monitor** — 7-day baselines, anomaly alerts
+- 📡 **ESP32 Pairing** — IP-based connection to smart leash on same Wi-Fi
+- 📊 **Live Behavior Detection** — 10 behaviors classified from leash sensors in real-time (sleeping, grooming, eating, playing, walking, sitting/alert, scratching, running, drinking, jumping)
+- 😌 **Emotion Assessment** — 5 feline emotion states (Nicholson 2021 framework) scored server-side from each behavior reading and persisted to `emotion_assessments`, not recomputed from whatever's on screen
+- 🩺 **Wellness Check** — Pain/discomfort detection via motion anomalies against 14-day baseline (Evangelista 2023)
+- 🌙 **Circadian Awareness** — Activity predictions based on crepuscular dawn/dusk patterns (Piccione 2013)
+- 📷 **Cat Cam** — Live MJPEG stream from ESP32-CAM with snapshot capture
+- 🗺️ **GPS Tracker** — Real OpenStreetMap with home geocoding, geofence alerts, trail visualization, and a realistic random-waypoint movement simulation (walk/rest cycles at mode-dependent speeds) until real GPS hardware is wired up
+- 🔮 **Needs Predictor** — Estimates hunger, thirst, play, rest, attention needs with confidence %
+- 📖 **Scrapbook** — Book-style albums with customizable covers, photos, videos, notes, and tags
+- 🔔 **Reminders** — Categorized tasks (feeding/health/play/grooming/vet) with priority and recurring schedules
+- ❤️ **Health Monitor** — 7-day sensor baseline, activity metrics (steps, jumps, grooming, meals), anomaly alerts
+- 🏥 **Vet Finder** — Search real veterinary clinics nearby using OpenStreetMap Overpass API + geocoding
+- 🤖 **MCP Server** — OAuth 2.0 protected API for Claude Connector / AI agent integration
 
 ---
 
