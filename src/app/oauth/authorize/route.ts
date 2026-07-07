@@ -14,24 +14,27 @@ const ALLOWED_SCOPES = new Set(["read", "write", "offline_access"]);
 /**
  * Resolves and validates the OAuth client for an authorization request.
  *
- * Fails closed: if a real database is configured, the client must exist
- * and the requested redirect_uri must be one of its registered URIs.
- * Previously, any lookup failure (client not found, or getClient()
- * throwing) fell through to an "Unknown App" placeholder that skipped
- * redirect_uri validation entirely — an attacker could supply a
- * nonexistent client_id together with any redirect_uri they controlled,
- * and the server would still render the login form and (had the later
- * INSERT not been blocked by a foreign key) hand back an authorization
- * code redeemable at that attacker-controlled URI. In Demo Mode (no
- * DATABASE_URL) there is no client registry to check against and no
- * persistent token issued, so that path is left permissive.
+ * Fails closed: the client must exist and the requested redirect_uri must
+ * be one of its registered URIs. Previously, any lookup failure (client
+ * not found, or getClient() throwing) fell through to an "Unknown App"
+ * placeholder that skipped redirect_uri validation entirely — an attacker
+ * could supply a nonexistent client_id together with any redirect_uri they
+ * controlled, and the server would still render the login form and (had
+ * the later INSERT not been blocked by a foreign key) hand back an
+ * authorization code redeemable at that attacker-controlled URI. Demo Mode
+ * (no DATABASE_URL) previously also skipped validation, allowing arbitrary
+ * redirect URIs; it now fails closed and requires database-backed client
+ * registration for all authorization flows.
  */
 async function resolveClientOrError(
   clientId: string,
   redirectUri: string
 ): Promise<{ client: OAuthClient | null; error: string | null }> {
   if (!isDbAvailable()) {
-    return { client: null, error: null };
+    return {
+      client: null,
+      error: "OAuth authorization requires a configured database. Please set DATABASE_URL.",
+    };
   }
 
   let client: OAuthClient | null;
@@ -288,7 +291,10 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const clientName = (isDbAvailable() ? client?.client_name : null) || "Unknown App";
+    // After validation, client must be non-null (resolveClientOrError fails
+    // closed and returns an error if the client doesn't exist or the
+    // redirect_uri doesn't match).
+    const clientName = client?.client_name || "Unknown App";
 
     const html = htmlPage({
       clientName,
@@ -397,9 +403,9 @@ export async function POST(request: NextRequest) {
     ]);
 
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-      // Re-render with error. client is guaranteed non-null here when a
-      // real DB is configured (resolveClientOrError already validated
-      // it); in Demo Mode it's null and we fall back to a generic name.
+      // Re-render with error. client is guaranteed non-null here because
+      // resolveClientOrError already validated it and would have returned
+      // an error if the client didn't exist or the redirect_uri didn't match.
       const html = htmlPage({
         clientName: client?.client_name || "External App",
         scope,
