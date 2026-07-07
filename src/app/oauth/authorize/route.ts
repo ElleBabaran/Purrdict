@@ -255,6 +255,48 @@ export async function POST(request: NextRequest) {
     const email = formData.get("email") as string;
     const password = formData.get("password") as string;
 
+    // Validate client and redirect_uri before processing
+    if (!clientId || !redirectUri) {
+      return new NextResponse("Invalid authorization request. Missing required parameters.", {
+        status: 400,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+
+    let client = null;
+    try {
+      client = await getClient(clientId);
+    } catch (err) {
+      console.error("OAuth getClient error (table may not exist):", err);
+    }
+
+    if (client) {
+      // Validate redirect_uri matches registered URIs
+      const uriMatch = client.redirect_uris.some((uri) => {
+        // For localhost URIs, ignore port (per RFC 8252)
+        try {
+          const registered = new URL(uri);
+          const requested = new URL(redirectUri);
+          if (
+            (registered.hostname === "localhost" || registered.hostname === "127.0.0.1") &&
+            (requested.hostname === "localhost" || requested.hostname === "127.0.0.1")
+          ) {
+            return registered.pathname === requested.pathname;
+          }
+          return uri === redirectUri;
+        } catch {
+          return uri === redirectUri;
+        }
+      });
+
+      if (!uriMatch) {
+        return new NextResponse("Invalid redirect_uri for this client.", {
+          status: 400,
+          headers: { "Content-Type": "text/plain" },
+        });
+      }
+    }
+
     // User denied
     if (action === "deny") {
       const denyUrl = new URL(redirectUri);
@@ -275,13 +317,7 @@ export async function POST(request: NextRequest) {
     ]);
 
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-      // Re-render with error
-      let client = null;
-      try {
-        client = await getClient(clientId);
-      } catch {
-        // table may not exist
-      }
+      // Re-render with error (reuse client from earlier validation)
       const html = htmlPage({
         clientName: client?.client_name || "External App",
         scope,
